@@ -155,7 +155,7 @@ These decisions fixed the project’s portability and security acceptance criter
 
 ## 7. Cold-Start Validation Protocol
 
-Cold-start validation has not yet been executed because `PLAN.md` must first be written from the approved specification. Before implementation:
+The protocol is:
 
 1. Use a different agent type in a new session.
 2. Provide only the committed `SPEC.md` and `PLAN.md`.
@@ -164,7 +164,7 @@ Cold-start validation has not yet been executed because `PLAN.md` must first be 
 5. Require it to stop and ask at ambiguity rather than guess.
 6. Record questions, divergent interpretations, output gap, and exact SPEC/PLAN revisions in this file.
 
-No implementation task may begin until this record is appended and the resulting document changes are reviewed.
+Cold-start validation has not yet been executed. No implementation task may begin until this record is appended and the resulting document changes are reviewed.
 
 ## 8. Written Specification Review
 
@@ -180,4 +180,22 @@ Self-review corrections included:
 
 ## 9. Implementation Plan Generation
 
-After written SPEC approval, `superpowers:writing-plans` decomposed delivery into 18 test-driven tasks across eight worktree/PR groups. The plan fixes exact file ownership, produced/consumed interfaces, red tests, expected failures, minimal implementation behavior, green commands, review gates, and commits. It also places the different-agent cold-start validation as a hard gate before Task 1 and reserves `REFLECTION.md` as a human-only deliverable.
+After written SPEC approval, `superpowers:writing-plans` decomposed delivery into 18 test-driven tasks across eight worktree/PR groups. The plan fixes exact file ownership, produced/consumed interfaces, red tests, expected failures, minimal implementation behavior, green commands, review gates, and commits. It also places the different-agent cold-start validation as a hard gate before Task 1 and reserves `REFLECTION.md` as a human-only deliverable. The student subsequently approved the implementation plan; the cold-start gate remains the next required workflow step.
+
+## 10. Disk-Loss Recovery Record
+
+On 2026-07-21, the local repository was missing after storage loss. Recovery used two independent sources:
+
+1. The original course requirement files retained on the user's desktop/downloads.
+2. A surviving local Git-object snapshot.
+
+The snapshot contained an exact four-file pre-implementation tree. Its recovered blob IDs are:
+
+- `AGENT_LOG.md`: `a8a1e9662e59a09955bc1459c2f391893af4508a`
+- `PLAN.md`: `8a50fca602f5cce97668ea914ebf7df73abf201b`
+- `SPEC.md`: `62db4a3f95d93e4d8b59e6c31720e8abd740ab34`
+- `SPEC_PROCESS.md`: `5f84ea4b739072599f39230f017d3c11c1e9f2c6`
+
+The original commit objects `137fe2f` and `7e9c1a8` were not present in the surviving object store and cannot be truthfully recreated with their original hashes. The exact document blobs were committed into a new repository history as `87482f1` (`docs: restore project planning baseline`) with the original GitHub remote restored.
+
+Before resuming the workflow, a recovery self-review strengthened Task 2 of `PLAN.md`: every stated configuration validator now has an explicit red-test requirement, timeout parsing must reject non-positive durations, target-OS resolution must propagate validation errors, and two independent reviews are required before commit. A provider-shaped test token was also replaced by an unmistakable canary marker to avoid secret-scanner false positives. These clarifications do not change the approved product scope.

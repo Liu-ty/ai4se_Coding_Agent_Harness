@@ -90,3 +90,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Key output:** Root `PLAN.md` with 18 TDD tasks, exact interfaces/files/commands, eight worktree/PR groups, cold-start gate, traceability matrix, and human-only delivery boundaries.
 - **Human intervention:** None after written SPEC approval; implementation plan awaits user review.
 - **Lesson:** Cross-platform process control, public-demo route pruning, and credential fallback require explicit test tasks rather than being left to final packaging.
+
+## 2026-07-21 — Repository Recovery After Storage Loss
+
+- **Task:** RECOVERY-001
+- **Skills:** `superpowers:systematic-debugging`, `superpowers:writing-plans`, `superpowers:verification-before-completion`.
+- **Context:** The local repository was missing and the GitHub repository had no remote refs. A surviving local Git-object snapshot contained the approved planning-document baseline.
+- **Key output:** Recovered the exact four-document baseline from Git blobs, rebuilt `main`, restored `origin`, and committed the baseline as `87482f1` (`docs: restore project planning baseline`). Original commit hashes could not be recreated because their commit objects were lost.
+- **Evidence:** Recovery provenance and exact blob IDs are recorded in `SPEC_PROCESS.md`; the student's prior implementation-plan approval is restored, and the strengthened Task 2 plan now makes every required semantic validator and both review stages explicit.
+- **Human intervention:** The user reported the storage loss and authorized reconstruction from project history and requirements.
+- **Lesson:** Local-only artifacts are not substitutes for pushing Git history; future approved checkpoints should be pushed after review so a disk loss cannot erase the audit trail.

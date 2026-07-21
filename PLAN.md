@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Approved implementation plan; pre-implementation cold-start gate pending.
+
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
 **Architecture:** A Go domain core owns the run state machine, policy, feedback, budgets, and provider-neutral loop. Concrete providers, tools, executors, stores, credentials, HTTP API, React UI, and mock-only public demo connect through explicit ports; local and public profiles use separate composition roots.
@@ -279,7 +281,7 @@ git commit -m "feat: define harness domain state machine"
 - Consumes: `domain.PermissionProfile`.
 - Produces: `config.Config`, `config.CommandSpec`, `config.Load(io.Reader) (Config, error)`, and `config.ResolveStage(ValidationStage, runtime.GOOS) (CommandSpec, error)`.
 
-- [ ] **Step 1: Write failing strict-load and platform-resolution tests**
+- [ ] **Step 1: Write failing strict-load, semantic-validation, and platform-resolution tests**
 
 ```go
 package config_test
@@ -295,6 +297,17 @@ func TestResolveWindowsOverride(t *testing.T) {
     if err != nil || got.Executable != "go.exe" { t.Fatalf("got %#v, %v", got, err) }
 }
 ```
+
+Before implementation, the red suite must also contain named cases that prove all of the following requirements fail against the absent implementation:
+
+- `version` other than `1` is rejected.
+- Duplicate validation-stage IDs are rejected.
+- Absolute Windows and POSIX working directories are rejected on every host OS.
+- Empty base executables and empty selected override executables are rejected.
+- Malformed, zero, and negative validation timeouts are rejected.
+- A positive timeout is parsed into the returned `CommandSpec.Timeout`.
+- Both Windows and Linux overrides are selected only for their matching target OS, with the base command used otherwise.
+- `testdata/config/valid.toml` loads successfully and preserves the expected canonical values.
 
 - [ ] **Step 2: Run red**
 
@@ -327,9 +340,13 @@ type PolicyConfig struct { MaxFiles, MaxChangedLines, MaxFileBytes int; Protecte
 type CommandSpec struct { ID, Kind, Executable, WorkingDirectory string; Args []string; Timeout time.Duration; MaxOutputBytes int; Required bool }
 ```
 
-Use `github.com/BurntSushi/toml` metadata to reject undecoded keys, require `version = 1`, reject duplicate stage IDs, reject absolute working directories, reject empty executables, and parse positive timeouts.
+Use `github.com/BurntSushi/toml` metadata to reject undecoded keys. Centralize validation so `Load` requires `version = 1`, rejects duplicate stage IDs, rejects absolute working directories using both Windows and POSIX path rules, rejects empty base/override executables, and rejects malformed or non-positive validation timeouts. Use one helper such as `parsePositiveDuration(string) (time.Duration, error)`; `ResolveStage` must propagate its error and must never convert an invalid timeout to zero.
 
-- [ ] **Step 4: Add the canonical fixture and run green**
+- [ ] **Step 4: Implement strict resolution and all semantic validators**
+
+Keep decoding, semantic validation, and target-OS resolution separate. `ResolveStage` must select the matching override, retain base fields not replaced by the override, and return the parsed positive timeout in `CommandSpec`.
+
+- [ ] **Step 5: Add the canonical fixture and run green**
 
 ```toml
 version = 1
@@ -356,9 +373,13 @@ executable = "go.exe"
 ```
 
 Run: `go test ./internal/config -v`  
-Expected: PASS, including strict unknown-field and platform override cases.
+Expected: PASS for unknown fields, schema version, duplicate IDs, cross-platform absolute paths, empty executables, malformed/zero/negative timeouts, positive timeout parsing, canonical fixture loading, and Windows/Linux override selection.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Run the common exit gate and two independent reviews**
+
+Run `go test ./...` and `git diff --check`. Then give the task diff to a fresh spec-compliance reviewer and, after resolving its findings, to a different fresh code-quality reviewer. Record both review results and all fixes in `AGENT_LOG.md`; a single combined review or implementer self-certification does not satisfy this step.
+
+- [ ] **Step 7: Update evidence and commit**
 
 ```powershell
 git add internal/config testdata/config AGENT_LOG.md go.mod go.sum
@@ -851,7 +872,7 @@ func TestFingerprintIgnoresANSIPathsTimingAndAddresses(t *testing.T) {
 }
 func TestRedactorRemovesKnownAndPatternSecrets(t *testing.T) {
     r := feedback.NewRedactor([]string{"exact-canary"})
-    got := r.Redact("Authorization: Bearer exact-canary OPENAI_API_KEY=sk-live-123456789")
+    got := r.Redact("Authorization: Bearer exact-canary OPENAI_API_KEY=CANARY_SECRET_DO_NOT_LOG_123456789")
     if strings.Contains(got,"exact-canary") || strings.Contains(got,"sk-live") { t.Fatalf("leaked: %s", got) }
 }
 ```
