@@ -100,3 +100,12 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Evidence:** Recovery provenance and exact blob IDs are recorded in `SPEC_PROCESS.md`; the student's prior implementation-plan approval is restored, and the strengthened Task 2 plan now makes every required semantic validator and both review stages explicit.
 - **Human intervention:** The user reported the storage loss and authorized reconstruction from project history and requirements.
 - **Lesson:** Local-only artifacts are not substitutes for pushing Git history; future approved checkpoints should be pushed after review so a disk loss cannot erase the audit trail.
+
+## 2026-07-21 — Restored Baseline Published to GitHub
+
+- **Task:** RECOVERY-002
+- **Skills:** `superpowers:using-superpowers`, `superpowers:writing-plans`.
+- **Context:** Verified a clean `main`, an empty GitHub branch namespace, the configured SSH remote, and authenticated read access before publication.
+- **Key output:** Published recovery head `f81de6d` to `origin/main` and configured the local branch to track it. No implementation or experiment branch was published.
+- **Human intervention:** The user explicitly requested continued progress after reviewing the reconstruction result.
+- **Lesson:** A reviewed documentation gate should be pushed before starting disposable validation worktrees so the authoritative baseline remains independently recoverable.
