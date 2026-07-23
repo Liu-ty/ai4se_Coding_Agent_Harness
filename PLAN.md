@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Cold-start evidence committed; Task 1 foundation complete at `c76bfd8` and awaiting PR review.
+**Status:** Cold-start evidence and Tasks 1–2 committed; Foundation PR review is pending, and Tasks 3–4 have not started.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -269,7 +269,7 @@ git commit -m "feat: define harness domain state machine"
 
 ---
 
-### Task 2: Strict Versioned Project Configuration
+### Task 2: Strict Versioned Project Configuration — complete (`0d244ea`)
 
 **Files:**
 - Create: `internal/config/config.go`
@@ -283,7 +283,7 @@ git commit -m "feat: define harness domain state machine"
 - Consumes: `domain.PermissionProfile`.
 - Produces: `config.Config`, `config.CommandSpec`, `config.Load(io.Reader) (Config, error)`, and `config.ResolveStage(ValidationStage, runtime.GOOS) (CommandSpec, error)`.
 
-- [ ] **Step 1: Write failing strict-load, semantic-validation, and platform-resolution tests**
+- [x] **Step 1: Write failing strict-load, semantic-validation, and platform-resolution tests**
 
 ```go
 package config_test
@@ -313,12 +313,12 @@ Before implementation, the red suite must also contain named cases that prove al
 - Resolved command specifications preserve configured classifier rules.
 - `testdata/config/valid.toml` loads successfully and preserves the expected canonical values.
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/config -v`  
 Expected: FAIL because package `internal/config` does not exist.
 
-- [ ] **Step 3: Implement exact configuration types**
+- [x] **Step 3: Implement exact configuration types**
 
 ```go
 type Config struct {
@@ -346,11 +346,11 @@ type CommandSpec struct { ID, Kind, Executable, WorkingDirectory string; Args []
 
 Use `github.com/BurntSushi/toml` metadata to reject undecoded keys. Centralize validation so `Load` requires `version = 1`, accepts only the three defined permission profiles, rejects duplicate stage IDs, rejects Windows and POSIX absolute working directories independently of the host OS, rejects empty base/override executables, and rejects malformed or non-positive validation timeouts. Use focused helpers for host-independent absolute-path detection and `parsePositiveDuration(string) (time.Duration, error)`; `ResolveStage` must propagate timeout errors and must never convert an invalid timeout to zero.
 
-- [ ] **Step 4: Implement strict resolution and all semantic validators**
+- [x] **Step 4: Implement strict resolution and all semantic validators**
 
 Keep decoding, semantic validation, and target-OS resolution separate. `ResolveStage` must select the matching override, retain base fields and classifier rules not replaced by the override, and return the parsed positive timeout in `CommandSpec`.
 
-- [ ] **Step 5: Add the canonical fixture and run green**
+- [x] **Step 5: Add the canonical fixture and run green**
 
 ```toml
 version = 1
@@ -379,11 +379,11 @@ executable = "go.exe"
 Run: `go test ./internal/config -v`  
 Expected: PASS for unknown fields, schema version, permission profiles, duplicate IDs, platform-neutral Windows/POSIX absolute-path rejection, empty executables, malformed/zero/negative timeouts, positive timeout parsing, classifier preservation, canonical fixture loading, and Windows/Linux override selection.
 
-- [ ] **Step 6: Run the common exit gate and two independent reviews**
+- [x] **Step 6: Run the common exit gate and two independent reviews**
 
 Run `go test ./...` and `git diff --check`. Then give the task diff to a fresh spec-compliance reviewer and, after resolving its findings, to a different fresh code-quality reviewer. Record both review results and all fixes in `AGENT_LOG.md`; a single combined review or implementer self-certification does not satisfy this step.
 
-- [ ] **Step 7: Update evidence and commit**
+- [x] **Step 7: Update evidence and commit**
 
 ```powershell
 git add internal/config testdata/config AGENT_LOG.md go.mod go.sum

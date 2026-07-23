@@ -161,3 +161,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** On the `foundation` branch, `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 package build, and Linux amd64 test-binary compilation all passed.
 - **Human intervention:** The student authorized execution of the recommended process closure, branch publication, and Foundation PR preparation. No merge was authorized.
 - **Lesson:** Splitting implementation commits is not sufficient by itself; the plan status, task hash, checkboxes, and durable agent log must describe the same Git state before publication.
+
+## 2026-07-23 — Task 2 Branch Integration Closure
+
+- **Task:** CONFIG-INTEGRATION-001
+- **Skills:** `superpowers:using-superpowers`, `superpowers:executing-plans`, `superpowers:receiving-code-review`, `superpowers:using-git-worktrees`, `superpowers:verification-before-completion`.
+- **Context:** After the Foundation process commit, the unpublished `config-store-budget` branch was rebased onto `foundation`, changing the Task 2 implementation commit from `8a2e9bb` to `0d244ea` without changing its patch.
+- **Key output:** Annotated Task 2 with implementation commit `0d244ea`, marked its seven planned steps complete, and updated the plan status to state that Tasks 3–4 have not started.
+- **Verification:** On `config-store-budget`, `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 package build, and Linux amd64 test-binary compilation all passed. The first sandboxed attempt could not read the external Go build cache; the identical commands passed outside the restricted sandbox.
+- **Human intervention:** The student authorized the process repair and remote backup/PR preparation; Task 3 implementation and PR merge remain outside this step.
+- **Lesson:** Record the post-rebase commit identifier, not the obsolete pre-rebase hash, and distinguish an environment permission failure from a failing test assertion.
