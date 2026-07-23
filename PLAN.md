@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Approved implementation plan; pre-implementation cold-start gate pending.
+**Status:** Approved implementation plan; cold-start validation accepted with verifier remediation, evidence commit pending.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -31,14 +31,16 @@
 
 This gate occurs after this plan is approved and before Task 1 implementation.
 
-- [ ] Start a new session with an agent product different from the primary development agent.
-- [ ] Provide only committed `SPEC.md` and `PLAN.md`; do not provide this conversation, memory, or oral clarification.
-- [ ] Ask the cold agent to attempt Task 1 and one of Tasks 2–4, stopping at ambiguity rather than guessing.
-- [ ] Record every question, divergent interpretation, failed assumption, and produced artifact in `SPEC_PROCESS.md`.
-- [ ] Amend `SPEC.md`/`PLAN.md` with exact before/after diffs for every confirmed defect.
+- [x] Start a new session with an agent product different from the primary development agent.
+- [x] Provide only committed `SPEC.md` and `PLAN.md`; do not provide this conversation, memory, or oral clarification.
+- [x] Ask the cold agent to attempt Task 1 and one of Tasks 2–4, stopping at ambiguity rather than guessing.
+- [x] Record every question, divergent interpretation, failed assumption, and produced artifact in `SPEC_PROCESS.md`.
+- [x] Amend `SPEC.md`/`PLAN.md` with exact before/after diffs for every confirmed defect.
 - [ ] Commit the cold-start evidence and revisions before opening an implementation worktree.
 
 Expected gate result: the cold agent can identify every file, interface, command, expected failure, and acceptance criterion needed for the selected tasks without conversation history.
+
+Cold-start execution on 2026-07-22 attempted Tasks 1 and 2 with OpenCode/DeepSeek V4 Pro. Independent verification found correctable interface, cross-host path, formatting, and process-evidence gaps. The student approved conditional acceptance without a full rerun; the verifier repaired the blocking defects with fresh red-green evidence on 2026-07-23. No later task may begin until the evidence and revisions are reviewed and committed.
 
 ## Worktree and PR Map
 
@@ -292,7 +294,7 @@ func TestLoadRejectsUnknownField(t *testing.T) {
 }
 
 func TestResolveWindowsOverride(t *testing.T) {
-    stage := config.ValidationStage{ID:"unit-test", Executable:"go", Args:[]string{"test","./..."}, Windows:&config.CommandOverride{Executable:"go.exe"}}
+    stage := config.ValidationStage{ID:"unit-test", Executable:"go", Args:[]string{"test","./..."}, Timeout:"1m", Windows:&config.CommandOverride{Executable:"go.exe"}}
     got, err := config.ResolveStage(stage, "windows")
     if err != nil || got.Executable != "go.exe" { t.Fatalf("got %#v, %v", got, err) }
 }
@@ -301,12 +303,14 @@ func TestResolveWindowsOverride(t *testing.T) {
 Before implementation, the red suite must also contain named cases that prove all of the following requirements fail against the absent implementation:
 
 - `version` other than `1` is rejected.
+- `default_profile` values outside `review`, `supervised`, and `workspace-auto` are rejected.
 - Duplicate validation-stage IDs are rejected.
-- Absolute Windows and POSIX working directories are rejected on every host OS.
+- Windows drive-rooted, Windows root-relative, UNC, and POSIX absolute working directories are rejected on every host OS by platform-neutral tests.
 - Empty base executables and empty selected override executables are rejected.
 - Malformed, zero, and negative validation timeouts are rejected.
 - A positive timeout is parsed into the returned `CommandSpec.Timeout`.
 - Both Windows and Linux overrides are selected only for their matching target OS, with the base command used otherwise.
+- Resolved command specifications preserve configured classifier rules.
 - `testdata/config/valid.toml` loads successfully and preserves the expected canonical values.
 
 - [ ] **Step 2: Run red**
@@ -337,14 +341,14 @@ type ValidationStage struct {
 }
 type ClassifierRule struct { Category, Pattern string }
 type PolicyConfig struct { MaxFiles, MaxChangedLines, MaxFileBytes int; Protected []string }
-type CommandSpec struct { ID, Kind, Executable, WorkingDirectory string; Args []string; Timeout time.Duration; MaxOutputBytes int; Required bool }
+type CommandSpec struct { ID, Kind, Executable, WorkingDirectory string; Args []string; Timeout time.Duration; MaxOutputBytes int; Required bool; Classifiers []ClassifierRule }
 ```
 
-Use `github.com/BurntSushi/toml` metadata to reject undecoded keys. Centralize validation so `Load` requires `version = 1`, rejects duplicate stage IDs, rejects absolute working directories using both Windows and POSIX path rules, rejects empty base/override executables, and rejects malformed or non-positive validation timeouts. Use one helper such as `parsePositiveDuration(string) (time.Duration, error)`; `ResolveStage` must propagate its error and must never convert an invalid timeout to zero.
+Use `github.com/BurntSushi/toml` metadata to reject undecoded keys. Centralize validation so `Load` requires `version = 1`, accepts only the three defined permission profiles, rejects duplicate stage IDs, rejects Windows and POSIX absolute working directories independently of the host OS, rejects empty base/override executables, and rejects malformed or non-positive validation timeouts. Use focused helpers for host-independent absolute-path detection and `parsePositiveDuration(string) (time.Duration, error)`; `ResolveStage` must propagate timeout errors and must never convert an invalid timeout to zero.
 
 - [ ] **Step 4: Implement strict resolution and all semantic validators**
 
-Keep decoding, semantic validation, and target-OS resolution separate. `ResolveStage` must select the matching override, retain base fields not replaced by the override, and return the parsed positive timeout in `CommandSpec`.
+Keep decoding, semantic validation, and target-OS resolution separate. `ResolveStage` must select the matching override, retain base fields and classifier rules not replaced by the override, and return the parsed positive timeout in `CommandSpec`.
 
 - [ ] **Step 5: Add the canonical fixture and run green**
 
@@ -373,7 +377,7 @@ executable = "go.exe"
 ```
 
 Run: `go test ./internal/config -v`  
-Expected: PASS for unknown fields, schema version, duplicate IDs, cross-platform absolute paths, empty executables, malformed/zero/negative timeouts, positive timeout parsing, canonical fixture loading, and Windows/Linux override selection.
+Expected: PASS for unknown fields, schema version, permission profiles, duplicate IDs, platform-neutral Windows/POSIX absolute-path rejection, empty executables, malformed/zero/negative timeouts, positive timeout parsing, classifier preservation, canonical fixture loading, and Windows/Linux override selection.
 
 - [ ] **Step 6: Run the common exit gate and two independent reviews**
 
