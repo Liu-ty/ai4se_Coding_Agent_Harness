@@ -151,3 +151,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Fresh verification:** `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, and Linux x64 cross-builds all passed. Task 3 and later tasks remain prohibited until this evidence is reviewed and committed.
 - **Human intervention:** The student explicitly approved conditional acceptance and execution of the remediation plan.
 - **Lesson:** Cold-start success is determined by independent evidence and honest remediation, not the worker agent's self-reported terminal label.
+
+## 2026-07-23 — Cold-Start Integration and Task 1 Closure
+
+- **Task:** FOUNDATION-INTEGRATION-001
+- **Skills:** `superpowers:using-superpowers`, `superpowers:executing-plans`, `superpowers:receiving-code-review`, `superpowers:using-git-worktrees`, `superpowers:verification-before-completion`.
+- **Context:** The accepted cold-start result had been separated locally into evidence commit `496587a`, Task 1 commit `c76bfd8`, and a dependent Task 2 branch, but `PLAN.md` still described the evidence commit as pending and retained unchecked Task 1 steps.
+- **Key output:** Closed the cold-start evidence checkbox, annotated Task 1 with implementation commit `c76bfd8`, marked its five planned steps complete, and added the durable Codex session roadmap under `docs/superpowers/plans/`.
+- **Verification:** On the `foundation` branch, `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 package build, and Linux amd64 test-binary compilation all passed.
+- **Human intervention:** The student authorized execution of the recommended process closure, branch publication, and Foundation PR preparation. No merge was authorized.
+- **Lesson:** Splitting implementation commits is not sufficient by itself; the plan status, task hash, checkboxes, and durable agent log must describe the same Git state before publication.

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Approved implementation plan; cold-start validation accepted with verifier remediation, evidence commit pending.
+**Status:** Cold-start evidence committed; Task 1 foundation complete at `c76bfd8` and awaiting PR review.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -36,7 +36,7 @@ This gate occurs after this plan is approved and before Task 1 implementation.
 - [x] Ask the cold agent to attempt Task 1 and one of Tasks 2–4, stopping at ambiguity rather than guessing.
 - [x] Record every question, divergent interpretation, failed assumption, and produced artifact in `SPEC_PROCESS.md`.
 - [x] Amend `SPEC.md`/`PLAN.md` with exact before/after diffs for every confirmed defect.
-- [ ] Commit the cold-start evidence and revisions before opening an implementation worktree.
+- [x] Commit the cold-start evidence and revisions before opening an implementation worktree (`496587a`).
 
 Expected gate result: the cold agent can identify every file, interface, command, expected failure, and acceptance criterion needed for the selected tasks without conversation history.
 
@@ -110,7 +110,7 @@ Only then update `AGENT_LOG.md`, stage explicit files, and commit.
 
 ---
 
-### Task 1: Project Skeleton and Run State Machine
+### Task 1: Project Skeleton and Run State Machine — complete (`c76bfd8`)
 
 **Files:**
 - Create: `.gitattributes`
@@ -125,7 +125,7 @@ Only then update `AGENT_LOG.md`, stage explicit files, and commit.
 - Consumes: only Go standard library.
 - Produces: `domain.RunID`, `domain.RunState`, `domain.PermissionProfile`, `domain.Action`, `domain.AgentDecision`, `domain.Observation`, `domain.StructuredFeedback`, `domain.Run`, and `domain.Transition(RunState, RunState) error`.
 
-- [ ] **Step 1: Create repository metadata and the minimal Go module**
+- [x] **Step 1: Create repository metadata and the minimal Go module**
 
 ```text
 # .gitattributes
@@ -157,7 +157,7 @@ module github.com/Liu-ty/ai4se_Coding_Agent_Harness
 go 1.26.5
 ```
 
-- [ ] **Step 2: Write failing transition tests**
+- [x] **Step 2: Write failing transition tests**
 
 ```go
 package domain_test
@@ -186,12 +186,12 @@ func TestReviewFlowEndsWithoutValidation(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run the tests and observe red**
+- [x] **Step 3: Run the tests and observe red**
 
 Run: `go test ./internal/domain -run 'TestRepairFlow|TestDecision|TestReview' -v`  
 Expected: FAIL because `internal/domain` and the referenced states do not exist.
 
-- [ ] **Step 4: Implement the stable domain vocabulary and transition table**
+- [x] **Step 4: Implement the stable domain vocabulary and transition table**
 
 ```go
 package domain
@@ -255,7 +255,7 @@ func Transition(from, to RunState) error {
 }
 ```
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/domain -v`  
 Expected: PASS.
