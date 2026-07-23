@@ -92,6 +92,8 @@ func TestLoadRejectsCrossPlatformAbsoluteWorkingDirectories(t *testing.T) {
 	paths := []string{
 		`C:\absolute\path`,
 		`C:/absolute/path`,
+		`C:relative`,
+		`c:relative`,
 		`\\server\share`,
 		`\rooted`,
 		`/absolute/path`,

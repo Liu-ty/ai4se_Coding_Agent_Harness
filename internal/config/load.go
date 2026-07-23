@@ -107,10 +107,9 @@ func isAbsoluteWorkingDirectory(path string) bool {
 		return true
 	}
 
-	return len(path) >= 3 &&
+	return len(path) >= 2 &&
 		((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) &&
-		path[1] == ':' &&
-		(path[2] == '/' || path[2] == '\\')
+		path[1] == ':'
 }
 
 // parsePositiveDuration parses a duration string and returns an error
