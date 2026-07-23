@@ -155,7 +155,7 @@ These decisions fixed the project’s portability and security acceptance criter
 
 ## 7. Cold-Start Validation Protocol
 
-The protocol is:
+The approved protocol was:
 
 1. Use a different agent type in a new session.
 2. Provide only the committed `SPEC.md` and `PLAN.md`.
@@ -164,7 +164,40 @@ The protocol is:
 5. Require it to stop and ask at ambiguity rather than guess.
 6. Record questions, divergent interpretations, output gap, and exact SPEC/PLAN revisions in this file.
 
-Cold-start validation has not yet been executed. No implementation task may begin until this record is appended and the resulting document changes are reviewed.
+### 7.1 Execution and Independent Verification
+
+On 2026-07-22, OpenCode with DeepSeek V4 Pro received only the committed `SPEC.md`, `PLAN.md`, and an operational experiment envelope. It worked in the isolated branch `cold-start/opencode-clean-20260722-rerun` at baseline `dee5d29`, attempted Tasks 1 and 2, did not start Task 3, and did not commit, push, merge, or change branches. Two fresh read-only Oracle sessions reviewed the resulting files.
+
+The cold agent produced runnable Task 1 and Task 2 artifacts, but its self-reported `PASS` was not accepted without independent verification. Verification on 2026-07-22 and remediation on 2026-07-23 found:
+
+- `Load` returned `*Config` although the plan fixed the public interface as `Load(io.Reader) (Config, error)`.
+- Windows-path rejection depended on the host implementation of `filepath.IsAbs`; moving the test to a Windows-only file hid the Linux behavior instead of satisfying the cross-host requirement.
+- The plan's `ResolveStage` example omitted the positive timeout required by its own validator.
+- The plan did not explicitly require validation of `default_profile`.
+- `CommandSpec` omitted the classifier rules that downstream feedback classification consumes.
+- Review-fix tests were written with production changes before their red state was observed.
+- `using-superpowers` was reported as preloaded rather than invoked through the skill tool.
+- Reviews used explicit file snapshots rather than a complete Git diff because most generated files were still untracked.
+- OMO created temporary `.omo/run-continuation` state, and the generated Go files had not been formatted.
+
+The student approved a moderate acceptance standard: retain the useful implementation, do not repeat the entire cold start, waive the non-destructive process deviations above after disclosure, but require security, public-interface, formatting, and evidence corrections before accepting the gate. The verifier then:
+
+1. Added a compile-time contract test, observed the expected pointer/value signature failure, and changed `Load` to return `Config`.
+2. Added platform-neutral Windows drive, UNC, Windows root-relative, and POSIX absolute-path cases, observed the expected `\rooted` failure, and implemented host-independent rejection.
+3. Removed the Windows-only test, formatted all Go files, and removed temporary `.omo` state.
+4. Corrected the plan and experiment evidence and performed a fresh focused verification.
+
+### 7.2 Exact Plan Revisions
+
+| Confirmed gap | Before | After |
+|---|---|---|
+| Override example | `ValidationStage` example omitted `Timeout` | Example includes `Timeout: "1m"` |
+| Permission profile | No explicit invalid-profile case | Red suite rejects values outside the three defined profiles |
+| Absolute paths | Generic Windows/POSIX wording | Platform-neutral tests enumerate drive-rooted, root-relative, UNC, and POSIX forms on every host |
+| Resolved classifiers | `CommandSpec` omitted `Classifiers` | `CommandSpec` carries `[]ClassifierRule`, and tests verify preservation |
+| Validation text | Relied on host path interpretation | Requires host-independent absolute-path detection |
+
+No `SPEC.md` product-scope change was necessary. The gate is accepted with verifier remediation, but its evidence and plan revisions must be reviewed and committed before Task 3 or any other later implementation task begins.
 
 ## 8. Written Specification Review
 
@@ -180,7 +213,7 @@ Self-review corrections included:
 
 ## 9. Implementation Plan Generation
 
-After written SPEC approval, `superpowers:writing-plans` decomposed delivery into 18 test-driven tasks across eight worktree/PR groups. The plan fixes exact file ownership, produced/consumed interfaces, red tests, expected failures, minimal implementation behavior, green commands, review gates, and commits. It also places the different-agent cold-start validation as a hard gate before Task 1 and reserves `REFLECTION.md` as a human-only deliverable. The student subsequently approved the implementation plan; the cold-start gate remains the next required workflow step.
+After written SPEC approval, `superpowers:writing-plans` decomposed delivery into 18 test-driven tasks across eight worktree/PR groups. The plan fixes exact file ownership, produced/consumed interfaces, red tests, expected failures, minimal implementation behavior, green commands, review gates, and commits. It also places the different-agent cold-start validation as a hard gate before Task 1 and reserves `REFLECTION.md` as a human-only deliverable. The student subsequently approved the implementation plan. The cold-start gate was executed and accepted with verifier remediation as recorded above, and evidence commit `496587a` satisfies its commit prerequisite. The remaining gate is Foundation PR review; Task 3 has not started.
 
 ## 10. Disk-Loss Recovery Record
 
