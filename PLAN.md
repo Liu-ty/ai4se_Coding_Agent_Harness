@@ -269,7 +269,7 @@ git commit -m "feat: define harness domain state machine"
 
 ---
 
-### Task 2: Strict Versioned Project Configuration — complete (`0d244ea`)
+### Task 2: Strict Versioned Project Configuration — complete (`83c03a2`, review fix `624f6b9`)
 
 **Files:**
 - Create: `internal/config/config.go`

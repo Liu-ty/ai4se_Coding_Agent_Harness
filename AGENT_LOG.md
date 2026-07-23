@@ -171,3 +171,14 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** On `config-store-budget`, `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 package build, and Linux amd64 test-binary compilation all passed. The first sandboxed attempt could not read the external Go build cache; the identical commands passed outside the restricted sandbox.
 - **Human intervention:** The student authorized the process repair and remote backup/PR preparation; Task 3 implementation and PR merge remain outside this step.
 - **Lesson:** Record the post-rebase commit identifier, not the obsolete pre-rebase hash, and distinguish an environment permission failure from a failing test assertion.
+
+## 2026-07-23 — Independent Review Fix and Final Branch Alignment
+
+- **Task:** CONFIG-REVIEW-FIX-001
+- **Skills:** `superpowers:requesting-code-review`, `superpowers:receiving-code-review`, `superpowers:systematic-debugging`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Context:** An independent GPT-5.6 Sol review accepted the Foundation range with documentation fixes and found that `C:relative` could bypass the host-independent working-directory guard on Windows. A second bounded reviewer confirmed the commit layering and Task 3 boundary but did not identify that path case.
+- **Red-green evidence:** Added `C:relative` and `c:relative` to `TestLoadRejectsCrossPlatformAbsoluteWorkingDirectories`; both failed with `got <nil>` before the fix and passed after all leading ASCII drive designators were rejected.
+- **Key output:** Moved the two evidence-text corrections into Foundation commit `5dfe967`; rebased Task 2 to implementation commit `83c03a2`; retained the TDD review fix as `624f6b9`; and kept Task 3 unstarted.
+- **Verification:** After the final rebase, `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 package build, and Linux amd64 test-binary compilation all passed.
+- **Human intervention:** The student authorized execution and publication preparation but did not authorize merging either branch.
+- **Lesson:** Cross-host path validation must reject drive-relative forms as well as drive-rooted forms; a fast release-gate review does not replace a deeper security-focused review.
