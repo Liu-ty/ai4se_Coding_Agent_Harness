@@ -93,7 +93,8 @@ ok  	github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain	(cached)
 
 ### 5.4 Deviations from Plan
 
-None. All steps followed exactly as specified in PLAN.md Task 1.
+No unresolved Task 1 interface deviations remain. The accepted process
+deviations are disclosed in Sections 9 and 14.3.
 
 ## 6. Task 2: Strict Versioned Project Configuration
 
