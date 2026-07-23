@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+.ai4se-harness/
+web/node_modules/
+web/dist/
+internal/httpapi/webdist/
+dist/
+coverage/
