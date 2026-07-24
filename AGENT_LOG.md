@@ -226,3 +226,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** Focused tests, `go test -race ./internal/budget -count=1`, `go test ./... -count=1`, `go vet ./...`, `gofmt -l internal`, and `git diff --check` passed on `d015fb5`.
 - **Human intervention:** None beyond the earlier authorization to continue autonomous project progress.
 - **Lesson:** Dependency injection boundaries must not call external callbacks while holding internal locks, and typed errors must not expose mutable state that can contradict their sentinel identity.
+
+## 2026-07-24 — Course Requirements and Task 4 Plan Reconciliation
+
+- **Task:** TASK-4-SPEC-RECONCILIATION-001.
+- **Skills:** `superpowers:using-superpowers`, `superpowers:receiving-code-review`, `superpowers:writing-plans`.
+- **Context:** The final Tasks 2–4 review was checked against both course requirement documents and the approved `SPEC.md` before accepting or rejecting each finding.
+- **Decision:** Confirmed three Task 4 boundary defects: missing configuration defaults/validation for SPEC §4.7, run-global rather than per-decision protocol repairs, and a Boolean progress API unable to emit the required changed-diff warning. Confirmed three separate Task 3 architecture defects but deferred them to a post-pause integration gate.
+- **Key output:** Amended `PLAN.md` with explicit failing tests, minimal implementation behavior, fresh two-stage review, and a hard pause after Task 4. Recorded that `SPEC.md` itself remains authoritative and unchanged.
+- **Human intervention:** The student requested SPEC confirmation, plan correction, completion of Task 4, and a pause immediately afterward.
+- **Lesson:** A prior task-level approval does not override a later whole-branch finding when the approved SPEC states a stricter observable contract; remediation scope should follow task ownership rather than mixing architecture work into an unrelated task.

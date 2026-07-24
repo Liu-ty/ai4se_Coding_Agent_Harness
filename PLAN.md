@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Foundation PR merged at `6cad5d1`; Tasks 1–4 are committed and independently reviewed.
+**Status:** Foundation PR merged at `6cad5d1`; Tasks 1–3 have implementation commits, and Task 4 is in SPEC-alignment remediation. Stop after Task 4 passes both fresh reviews; the deferred Task 3 architecture gate below must be completed after resumption and before the `config-store-budget` PR is declared ready.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -269,7 +269,7 @@ git commit -m "feat: define harness domain state machine"
 
 ---
 
-### Task 2: Strict Versioned Project Configuration — complete (`83c03a2`, review fix `624f6b9`)
+### Task 2: Strict Versioned Project Configuration — base complete (`83c03a2`, review fix `624f6b9`); Task 4 integration correction pending
 
 **Files:**
 - Create: `internal/config/config.go`
@@ -390,9 +390,13 @@ git add internal/config testdata/config AGENT_LOG.md go.mod go.sum
 git commit -m "feat: add strict versioned harness configuration"
 ```
 
+- [ ] **Step 8: Align configured budget defaults and validation with SPEC §4.7**
+
+Before changing production code, add focused tests proving that omitted budget keys resolve to `30` decisions, `5` mutations, `2` protocol repairs, and `"20m"` wall-clock, including partially specified `[budget]` tables. Add table-driven tests proving that an explicitly configured zero or negative count, malformed duration, or zero/negative duration is rejected with a stable budget-validation error. Preinitialize the decoder target with the SPEC defaults so omission remains distinct from an explicit zero, then validate all resolved budget fields. This correction is part of the Task 4 integration boundary and must be reviewed with Task 4.
+
 ---
 
-### Task 3: Hash-Chained Memory and SQLite Event Store — complete (`b7814ee`, review fixes `110cbf6`, `01891d0`)
+### Task 3: Hash-Chained Memory and SQLite Event Store — implementation complete (`b7814ee`, review fixes `110cbf6`, `01891d0`); architecture remediation deferred
 
 **Files:**
 - Create: `internal/domain/events.go`
@@ -464,17 +468,21 @@ git commit -m "feat: persist hash-chained run events"
 
 ---
 
-### Task 4: Dual Budgets and No-Progress Detection — complete (`c381b15`, review fix `d015fb5`)
+### Task 4: Dual Budgets and No-Progress Detection — SPEC-alignment remediation in progress (`c381b15`, review fix `d015fb5`)
 
 **Files:**
 - Create: `internal/budget/tracker.go`
 - Create: `internal/budget/progress.go`
 - Test: `internal/budget/tracker_test.go`
+- Test: `internal/budget/progress_test.go`
+- Modify: `internal/config/load.go`
+- Test: `internal/config/config_test.go`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**
-- Consumes: configured limits, clock, feedback fingerprint, diff digest.
-- Produces: `budget.Tracker`, `budget.ProgressDetector`, and typed stop reasons.
+- Consumes: validated configured limits, clock, feedback fingerprint, and diff digest.
+- Produces: `budget.Tracker`, `budget.ProgressDetector`, typed stop reasons, and typed progress outcomes (`continue`, `warning`, `stop`).
+- `RecordDecision` opens a new decision point and resets the current decision point's protocol-repair usage only after the decision is successfully recorded. `RecordProtocolRepair` enforces the two-attempt limit independently at each decision point.
 
 - [x] **Step 1: Write failing boundary tests with a fake clock**
 
@@ -511,7 +519,7 @@ func (t *Tracker) CheckTime() error
 func (t *Tracker) Snapshot() Usage
 ```
 
-`ProgressDetector.Observe` compares the last failure and diff digests and returns true only at the configured consecutive threshold.
+`ProgressDetector.Observe` compares the last failure and diff digests and returns a typed outcome. The first complete pair continues; the same failure with a substantively changed diff emits `warning` and starts a new consecutive pair; an identical pair reaching the threshold emits `stop`; different or incomplete evidence resets the consecutive evidence and continues.
 
 - [x] **Step 4: Run green and commit**
 
@@ -522,6 +530,48 @@ Expected: PASS, including exact-limit, wall-clock, reset-after-progress, and sam
 git add internal/budget AGENT_LOG.md
 git commit -m "feat: enforce run budgets and progress stops"
 ```
+
+- [ ] **Step 5: Write failing SPEC-alignment tests**
+
+Add tests before production changes for all three confirmed gaps:
+
+- omitted and partially specified configuration receives the four SPEC defaults, while explicit non-positive or malformed budget values are rejected;
+- the third protocol repair in one decision point stops, while a successfully recorded next decision opens a fresh two-repair allowance;
+- `ProgressDetector.Observe` returns distinct typed `continue`, `warning`, and `stop` outcomes, including the same-failure/changed-diff warning transition.
+
+Also increase the re-entrant clock regression timeout from 200 ms to 2 seconds so unusually slow CI workers do not create a false deadlock report.
+
+- [ ] **Step 6: Run red and preserve evidence**
+
+Run:
+
+```powershell
+go test ./internal/config ./internal/budget -count=1
+```
+
+Expected: FAIL because defaults/validation, per-decision-point repair reset, and typed warning outcomes are not yet implemented. Record the failing assertions in `AGENT_LOG.md`.
+
+- [ ] **Step 7: Implement the minimum aligned contracts and run green**
+
+Implement only the behavior named in Step 5. Do not begin the deferred Task 3 architecture work or Task 5. Then run the focused suites, race detector, common task exit gate, and Linux amd64 cross-compilation.
+
+- [ ] **Step 8: Run two fresh reviews, update evidence, and pause**
+
+Give the Task 4 alignment diff first to a fresh SPEC-compliance reviewer and then to a different fresh code-quality reviewer. Fix all Critical and Important findings within Task 4 scope, update this heading and completed checkboxes with the final commit hash, append `AGENT_LOG.md`, and stop. Do not start the deferred gate or Task 5 in this session.
+
+---
+
+## Post-Task-4 Pause and Deferred `config-store-budget` Integration Gate
+
+This gate records confirmed SPEC §6.1 and backend-contract defects found by the final Tasks 2–4 branch review. It is intentionally deferred until the student resumes work. The branch is not PR-ready until these items pass TDD and two fresh reviews:
+
+- [ ] Move the `Store` port out of the concrete SQLite adapter package so core consumers can depend on the port without compiling or initializing SQLite; update the planned file structure and imports without changing observable store semantics.
+- [ ] Add shared contract tests for already-cancelled contexts and make the memory and SQLite implementations return compatible cancellation errors without mutation.
+- [ ] Inject a clock into memory and SQLite event creation at composition/construction boundaries; add deterministic timestamp and hash-chain tests that never call the real clock.
+- [ ] Run `go mod tidy` and verify `modernc.org/sqlite` is a direct dependency, then rerun the full Windows and Linux amd64 gates.
+- [ ] Complete fresh SPEC-compliance and code-quality reviews before publishing the `config-store-budget` PR.
+
+**Pause rule:** after Task 4 Step 8 is complete, stop. Resume with this gate before Task 5 or branch publication.
 
 ---
 
