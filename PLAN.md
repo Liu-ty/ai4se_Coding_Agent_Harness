@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Foundation PR merged at `6cad5d1`; Tasks 1–3 are committed and independently reviewed, and Task 4 has not started.
+**Status:** Foundation PR merged at `6cad5d1`; Tasks 1–4 are committed and independently reviewed.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -464,7 +464,7 @@ git commit -m "feat: persist hash-chained run events"
 
 ---
 
-### Task 4: Dual Budgets and No-Progress Detection
+### Task 4: Dual Budgets and No-Progress Detection — complete (`c381b15`, review fix `d015fb5`)
 
 **Files:**
 - Create: `internal/budget/tracker.go`
@@ -476,7 +476,7 @@ git commit -m "feat: persist hash-chained run events"
 - Consumes: configured limits, clock, feedback fingerprint, diff digest.
 - Produces: `budget.Tracker`, `budget.ProgressDetector`, and typed stop reasons.
 
-- [ ] **Step 1: Write failing boundary tests with a fake clock**
+- [x] **Step 1: Write failing boundary tests with a fake clock**
 
 ```go
 func TestTrackerStopsAtDecisionLimit(t *testing.T) {
@@ -492,12 +492,12 @@ func TestNoProgressNeedsSameFailureAndSameDiffTwice(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/budget -v`  
 Expected: FAIL because budget package is missing.
 
-- [ ] **Step 3: Implement tracker and detector**
+- [x] **Step 3: Implement tracker and detector**
 
 ```go
 type Limits struct { MaxDecisions, MaxMutations, MaxProtocolRepairs int; WallClock time.Duration }
@@ -513,7 +513,7 @@ func (t *Tracker) Snapshot() Usage
 
 `ProgressDetector.Observe` compares the last failure and diff digests and returns true only at the configured consecutive threshold.
 
-- [ ] **Step 4: Run green and commit**
+- [x] **Step 4: Run green and commit**
 
 Run: `go test ./internal/budget -v`  
 Expected: PASS, including exact-limit, wall-clock, reset-after-progress, and same-failure/different-diff warning cases.
