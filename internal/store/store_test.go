@@ -8,10 +8,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"path/filepath"
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/store"
@@ -32,7 +34,13 @@ func contract(t *testing.T, newStore factory) {
 	t.Helper()
 	s := newStore(t)
 	ctx := context.Background()
-	run := domain.Run{ID: "run-1", State: domain.StateCreated, Task: "repair"}
+	run := domain.Run{
+		ID:        "run-1",
+		State:     domain.StateCreated,
+		Task:      "repair",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Date(2026, time.July, 24, 9, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60)),
+	}
 	if err := s.CreateRun(ctx, run); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +61,7 @@ func contract(t *testing.T, newStore factory) {
 	if got, want := e2.Hash, canonicalHash(e2); got != want {
 		t.Fatalf("second event hash = %q, want %q", got, want)
 	}
-	updated := run
+	updated := normalizedRun(run)
 	updated.State = domain.StatePreflight
 	updated.CurrentStage = "preflight"
 	e3, err := s.UpdateRun(ctx, updated, "StateChanged", json.RawMessage(`{"state":"PREFLIGHT"}`))
@@ -68,8 +76,8 @@ func contract(t *testing.T, newStore factory) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored != updated {
-		t.Fatalf("GetRun() = %#v, want %#v", stored, updated)
+	if stored != normalizedRun(updated) {
+		t.Fatalf("GetRun() = %#v, want %#v", stored, normalizedRun(updated))
 	}
 	events, err := s.ListEvents(ctx, run.ID, 2)
 	if err != nil {
@@ -77,6 +85,79 @@ func contract(t *testing.T, newStore factory) {
 	}
 	if len(events) != 2 || events[0].Sequence != 2 || events[1].Sequence != 3 {
 		t.Fatalf("ListEvents(from=2) = %#v, want sequences 2 and 3", events)
+	}
+}
+
+func TestStoresRejectDuplicateRunWithoutMutation(t *testing.T) {
+	for name, newStore := range map[string]factory{
+		"memory": memoryFactory(),
+		"sqlite": sqliteFactory(t),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			ctx := context.Background()
+			original := domain.Run{ID: "run-1", State: domain.StateCreated, Task: "original"}
+			if err := s.CreateRun(ctx, original); err != nil {
+				t.Fatal(err)
+			}
+			event, err := s.AppendEvent(ctx, original.ID, "RunCreated", json.RawMessage(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.CreateRun(ctx, domain.Run{ID: original.ID, State: domain.StateStopped, Task: "replacement"}); !errors.Is(err, store.ErrRunAlreadyExists) {
+				t.Fatalf("duplicate CreateRun() error = %v", err)
+			}
+			got, err := s.GetRun(ctx, original.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != original {
+				t.Fatalf("run after duplicate CreateRun() = %#v, want %#v", got, original)
+			}
+			events, err := s.ListEvents(ctx, original.ID, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 1 || events[0].Hash != event.Hash {
+				t.Fatalf("events after duplicate CreateRun() = %#v, want %#v", events, event)
+			}
+		})
+	}
+}
+
+func TestStoresRejectArtifactsForMissingRuns(t *testing.T) {
+	for name, newStore := range map[string]factory{
+		"memory": memoryFactory(),
+		"sqlite": sqliteFactory(t),
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := newStore(t).PutArtifact(context.Background(), domain.Artifact{ID: "artifact-1", RunID: "missing"})
+			if !errors.Is(err, store.ErrRunNotFound) {
+				t.Fatalf("PutArtifact() missing run error = %v", err)
+			}
+		})
+	}
+}
+
+func TestStoresListEventsReturnsNonNilEmptySlice(t *testing.T) {
+	for name, newStore := range map[string]factory{
+		"memory": memoryFactory(),
+		"sqlite": sqliteFactory(t),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			ctx := context.Background()
+			if err := s.CreateRun(ctx, domain.Run{ID: "run-1"}); err != nil {
+				t.Fatal(err)
+			}
+			events, err := s.ListEvents(ctx, "run-1", math.MaxUint64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if events == nil || len(events) != 0 {
+				t.Fatalf("ListEvents() = %#v, want non-nil empty slice", events)
+			}
+		})
 	}
 }
 
@@ -201,6 +282,25 @@ func TestStoresAllocateConcurrentSequences(t *testing.T) {
 			for index, sequence := range got {
 				if want := index + 1; sequence != want {
 					t.Fatalf("sequences = %v, want 1 through %d", got, eventCount)
+				}
+			}
+			events, err := s.ListEvents(ctx, "run-1", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != eventCount {
+				t.Fatalf("event count = %d, want %d", len(events), eventCount)
+			}
+			for index, event := range events {
+				if event.Sequence != uint64(index+1) || event.Hash != canonicalHash(event) {
+					t.Fatalf("invalid concurrent event at index %d: %#v", index, event)
+				}
+				previousHash := ""
+				if index > 0 {
+					previousHash = events[index-1].Hash
+				}
+				if event.PreviousHash != previousHash {
+					t.Fatalf("event %d previous hash = %q, want %q", event.Sequence, event.PreviousHash, previousHash)
 				}
 			}
 		})
@@ -369,4 +469,17 @@ func canonicalHash(event domain.RunEvent) string {
 	writeBytes(event.Payload)
 	writeBytes([]byte(event.PreviousHash))
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func normalizedRun(run domain.Run) domain.Run {
+	run.CreatedAt = normalizedTime(run.CreatedAt)
+	run.UpdatedAt = normalizedTime(run.UpdatedAt)
+	return run
+}
+
+func normalizedTime(value time.Time) time.Time {
+	if value.IsZero() {
+		return value
+	}
+	return value.UTC()
 }

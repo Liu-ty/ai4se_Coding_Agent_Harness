@@ -14,10 +14,11 @@ import (
 )
 
 var (
-	ErrEmptyRunID      = errors.New("run ID is required")
-	ErrEmptyEventType  = errors.New("event type is required")
-	ErrEmptyArtifactID = errors.New("artifact ID is required")
-	ErrRunNotFound     = errors.New("run not found")
+	ErrEmptyRunID       = errors.New("run ID is required")
+	ErrEmptyEventType   = errors.New("event type is required")
+	ErrEmptyArtifactID  = errors.New("artifact ID is required")
+	ErrRunAlreadyExists = errors.New("run already exists")
+	ErrRunNotFound      = errors.New("run not found")
 )
 
 // Store is the persistence port for a single harness run.
@@ -108,4 +109,17 @@ func cloneArtifact(artifact domain.Artifact) domain.Artifact {
 	}
 	artifact.Content = append([]byte(nil), artifact.Content...)
 	return artifact
+}
+
+func normalizeRun(run domain.Run) domain.Run {
+	run.CreatedAt = normalizeTime(run.CreatedAt)
+	run.UpdatedAt = normalizeTime(run.UpdatedAt)
+	return run
+}
+
+func normalizeTime(value time.Time) time.Time {
+	if value.IsZero() {
+		return value
+	}
+	return value.UTC()
 }

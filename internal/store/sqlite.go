@@ -7,6 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"net/url"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
@@ -25,29 +29,42 @@ const zeroTimeMarker int64 = -1 << 63
 
 // OpenSQLite opens a SQLite store and applies the initial schema.
 func OpenSQLite(path string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("enable foreign keys: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("configure busy timeout: %w", err)
-	}
 	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("enable WAL: %w", err)
+	}
+	var journalMode string
+	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("read journal mode: %w", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		_ = db.Close()
+		return nil, fmt.Errorf("enable WAL: journal mode is %q", journalMode)
 	}
 	if _, err := db.Exec(initialMigration); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply initial migration: %w", err)
 	}
 	return &SQLiteStore{db: db}, nil
+}
+
+func sqliteDSN(path string) string {
+	dsnPath := filepath.ToSlash(path)
+	if volume := filepath.VolumeName(path); volume != "" && !strings.HasPrefix(dsnPath, "/") {
+		dsnPath = "/" + dsnPath
+	}
+	pragmas := url.Values{}
+	pragmas.Add("_pragma", "foreign_keys(1)")
+	pragmas.Add("_pragma", "busy_timeout(5000)")
+	pragmas.Add("_pragma", "journal_mode(WAL)")
+	return (&url.URL{Scheme: "file", Path: dsnPath, RawQuery: pragmas.Encode()}).String()
 }
 
 // Close releases the underlying SQLite database connection.
@@ -59,18 +76,31 @@ func (s *SQLiteStore) CreateRun(ctx context.Context, run domain.Run) error {
 	if err := validateRunID(run.ID); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `
+	run = normalizeRun(run)
+	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO runs (id, state, profile, task, repo_root, current_stage, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO NOTHING`,
 		run.ID, run.State, run.Profile, run.Task, run.RepoRoot, run.CurrentStage,
 		storeTime(run.CreatedAt), storeTime(run.UpdatedAt))
-	return err
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return ErrRunAlreadyExists
+	}
+	return nil
 }
 
 func (s *SQLiteStore) UpdateRun(ctx context.Context, run domain.Run, eventType string, payload json.RawMessage) (event domain.RunEvent, err error) {
 	if err := validateEvent(run.ID, eventType); err != nil {
 		return domain.RunEvent{}, err
 	}
+	run = normalizeRun(run)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.RunEvent{}, err
@@ -180,14 +210,17 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, runID domain.RunID, fromSe
 	if !exists {
 		return nil, ErrRunNotFound
 	}
+	if fromSequence > math.MaxInt64 {
+		return []domain.RunEvent{}, nil
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT run_id, sequence, type, at, payload, previous_hash, hash
-		FROM run_events WHERE run_id = ? AND sequence >= ? ORDER BY sequence`, runID, fromSequence)
+		FROM run_events WHERE run_id = ? AND sequence >= ? ORDER BY sequence`, runID, int64(fromSequence))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var events []domain.RunEvent
+	events := make([]domain.RunEvent, 0)
 	for rows.Next() {
 		var event domain.RunEvent
 		var at int64
@@ -210,7 +243,14 @@ func (s *SQLiteStore) PutArtifact(ctx context.Context, artifact domain.Artifact)
 		return err
 	}
 	artifact = cloneArtifact(artifact)
-	_, err := s.db.ExecContext(ctx, `
+	exists, err := s.runExists(ctx, artifact.RunID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrRunNotFound
+	}
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO artifacts (id, run_id, kind, sha256, content, truncated)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET run_id = excluded.run_id, kind = excluded.kind,

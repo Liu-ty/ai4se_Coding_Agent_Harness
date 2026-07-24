@@ -30,8 +30,12 @@ func (s *MemoryStore) CreateRun(_ context.Context, run domain.Run) error {
 	if err := validateRunID(run.ID); err != nil {
 		return err
 	}
+	run = normalizeRun(run)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, ok := s.runs[run.ID]; ok {
+		return ErrRunAlreadyExists
+	}
 	s.runs[run.ID] = run
 	return nil
 }
@@ -45,6 +49,7 @@ func (s *MemoryStore) UpdateRun(_ context.Context, run domain.Run, eventType str
 	if _, ok := s.runs[run.ID]; !ok {
 		return domain.RunEvent{}, ErrRunNotFound
 	}
+	run = normalizeRun(run)
 	event := s.appendLocked(run.ID, eventType, payload)
 	s.runs[run.ID] = run
 	return cloneEvent(event), nil
