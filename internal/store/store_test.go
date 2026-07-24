@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/store"
+	_ "modernc.org/sqlite"
 )
 
 type factory func(*testing.T) store.Store
@@ -51,20 +53,30 @@ func contract(t *testing.T, newStore factory) {
 	if got, want := e2.Hash, canonicalHash(e2); got != want {
 		t.Fatalf("second event hash = %q, want %q", got, want)
 	}
+	updated := run
+	updated.State = domain.StatePreflight
+	updated.CurrentStage = "preflight"
+	e3, err := s.UpdateRun(ctx, updated, "StateChanged", json.RawMessage(`{"state":"PREFLIGHT"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e3.Sequence != 3 || e3.PreviousHash != e2.Hash || e3.Hash != canonicalHash(e3) {
+		t.Fatalf("UpdateRun event = %#v, want a verified third chained event", e3)
+	}
 
 	stored, err := s.GetRun(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored != run {
-		t.Fatalf("GetRun() = %#v, want %#v", stored, run)
+	if stored != updated {
+		t.Fatalf("GetRun() = %#v, want %#v", stored, updated)
 	}
 	events, err := s.ListEvents(ctx, run.ID, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 || events[0].Sequence != 2 {
-		t.Fatalf("ListEvents(after=2) = %#v, want only sequence 2", events)
+	if len(events) != 2 || events[0].Sequence != 2 || events[1].Sequence != 3 {
+		t.Fatalf("ListEvents(from=2) = %#v, want sequences 2 and 3", events)
 	}
 }
 
@@ -226,6 +238,59 @@ func TestStoresRollbackRunUpdateWhenEventValidationFails(t *testing.T) {
 				t.Fatalf("events after failed update = %#v, want none", events)
 			}
 		})
+	}
+}
+
+func TestSQLiteUpdateRunRollsBackWhenEventInsertFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runs.db")
+	ctx := context.Background()
+	s, err := store.OpenSQLite(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	original := domain.Run{ID: "run-1", State: domain.StateCreated}
+	if err := s.CreateRun(ctx, original); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.AppendEvent(ctx, original.ID, "RunCreated", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	if _, err := raw.Exec(`
+		CREATE TRIGGER reject_state_change_event
+		BEFORE INSERT ON run_events
+		WHEN NEW.type = 'StateChanged'
+		BEGIN
+			SELECT RAISE(ABORT, 'test rejects event insert');
+		END;`); err != nil {
+		t.Fatal(err)
+	}
+
+	updated := original
+	updated.State = domain.StatePreflight
+	if _, err := s.UpdateRun(ctx, updated, "StateChanged", json.RawMessage(`{"state":"PREFLIGHT"}`)); err == nil {
+		t.Fatal("UpdateRun() succeeded despite the event-insert trigger")
+	}
+	got, err := s.GetRun(ctx, original.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != original {
+		t.Fatalf("run after failed transactional update = %#v, want %#v", got, original)
+	}
+	events, err := s.ListEvents(ctx, original.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Sequence != first.Sequence || events[0].Hash != first.Hash {
+		t.Fatalf("events after failed transactional update = %#v, want original event %#v", events, first)
 	}
 }
 
