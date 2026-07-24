@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
@@ -13,8 +14,9 @@ func TestRepairFlowAllowsBaselineToDecision(t *testing.T) {
 }
 
 func TestDecisionCannotClaimSuccess(t *testing.T) {
-	if err := domain.Transition(domain.StateDeciding, domain.StateSucceeded); err == nil {
-		t.Fatal("expected direct success to be rejected")
+	err := domain.Transition(domain.StateDeciding, domain.StateSucceeded)
+	if !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Fatalf("expected ErrInvalidTransition, got %v", err)
 	}
 }
 
@@ -31,8 +33,9 @@ func TestTerminalStateRejectsTransition(t *testing.T) {
 		domain.StateStopped,
 	}
 	for _, ts := range terminalStates {
-		if err := domain.Transition(ts, domain.StateDeciding); err == nil {
-			t.Fatalf("terminal state %s should reject transition to DECIDING", ts)
+		err := domain.Transition(ts, domain.StateDeciding)
+		if !errors.Is(err, domain.ErrInvalidTransition) {
+			t.Fatalf("terminal state %s: expected ErrInvalidTransition, got %v", ts, err)
 		}
 	}
 }
@@ -82,7 +85,8 @@ func TestFinalValidatingDeciding(t *testing.T) {
 }
 
 func TestSelfTransitionRejected(t *testing.T) {
-	if err := domain.Transition(domain.StateDeciding, domain.StateDeciding); err == nil {
-		t.Fatal("expected self-transition to be rejected")
+	err := domain.Transition(domain.StateDeciding, domain.StateDeciding)
+	if !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Fatalf("expected ErrInvalidTransition, got %v", err)
 	}
 }
