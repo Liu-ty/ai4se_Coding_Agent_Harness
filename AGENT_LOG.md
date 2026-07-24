@@ -205,3 +205,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** Focused store tests, `go test -race ./internal/store -count=1`, `go test ./... -count=1`, `go vet ./...`, `gofmt -l internal`, and `git diff --check` passed on the reviewed `01891d0` code. The controller still runs the full common exit gate and Linux amd64 cross-compilation before publication.
 - **Human intervention:** The user authorized autonomous progress from the supplied project requirements and checklist. Approval prompts were limited to Git/GitHub synchronization, dependency download, and access to the existing Go build cache; no product behavior was selected by the user during Task 3.
 - **Lesson:** A shared store interface is not proven interchangeable by happy-path contracts alone. Duplicate IDs, foreign-key failures, connection replacement, time normalization, and extreme sequence bounds must have backend-neutral observable semantics.
+
+## 2026-07-24 - Task 4: Dual Budgets and No-Progress Detection
+
+- **Task:** Task 4 implementation only; `PLAN.md` remains unchanged for controller review.
+- **Skills:** `superpowers:test-driven-development`.
+- **Red evidence:** Created the `internal/budget` boundary tests before production code. `go test ./internal/budget -v` then failed as expected because `NewProgressDetector`, `Limits`, `Tracker`, `Usage`, and the budget sentinels did not yet exist.
+- **Green evidence:** After the minimal implementation, `go test ./internal/budget -v` passed all 12 tracker/progress tests. `go test -race ./internal/budget -count=1`, `go test ./... -count=1`, `go vet ./...`, `gofmt -l internal`, and `git diff --check` all passed.
+- **Implementation:** Added a mutex-protected tracker with independent decision, mutation, protocol-repair, and wall-clock limits; exported sentinel errors plus `StopError.Reason`; value snapshots; and a consecutive pair-based progress detector that resets on incomplete or changed signals.
+- **Self-review:** Count records compare before incrementing, so attempt N+1 is rejected without usage inflation. The fake-clock boundary test verifies `elapsed >= WallClock`, while failed time checks leave usage intact. Detector tests verify both members of the pair must repeat, threshold one works, and empty evidence resets state.
+- **Concerns:** None identified. `New` intentionally requires a non-nil caller-supplied `Clock`, matching the defined constructor contract and allowing deterministic harness integration.
