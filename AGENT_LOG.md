@@ -182,3 +182,14 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** After the final rebase, `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 package build, and Linux amd64 test-binary compilation all passed.
 - **Human intervention:** The student authorized execution and publication preparation but did not authorize merging either branch.
 - **Lesson:** Cross-host path validation must reject drive-relative forms as well as drive-rooted forms; a fast release-gate review does not replace a deeper security-focused review.
+
+## 2026-07-24 - Task 3: Hash-Chained Memory and SQLite Event Store
+
+- **Task:** Task 3 (implementation only; PLAN.md remains unmarked pending controller review).
+- **Skills:** `superpowers:test-driven-development`.
+- **Red evidence:** `go test ./internal/store -v` initially failed with `no non-test Go files in F:\\codes\\ai4se\\internal\\store`, after the contract test was added and before production store code existed. A restricted-sandbox attempt first failed only because the external Go build cache was inaccessible; the same command outside that restriction produced the expected red result.
+- **Green evidence:** `go test ./internal/store -v` passed the memory and SQLite contracts, canonical hash verification, ID/type sentinels, payload isolation, concurrent sequence allocation, UpdateRun failure atomicity, empty content handling, and SQLite close/reopen persistence. `go test ./...` passed for `config`, `domain`, and `store`; `git diff --check` was clean.
+- **Implementation:** Added domain events/artifacts, a concurrency-safe memory store, a SQLite store using `modernc.org/sqlite`, embedded schema migration, length-prefixed SHA-256 event hashes, stable input-validation sentinels, transaction-backed updates, and SQLite foreign-key/busy-timeout/WAL/single-writer configuration.
+- **Self-review:** Corrected SQLite zero-time round-tripping and empty BLOB handling after focused tests exposed them. Verified the hash field order is run ID, sequence, type, Unix nanoseconds, payload, previous hash, each with an eight-byte big-endian length prefix.
+- **Human intervention:** Approved normal dependency-download and Go build-cache access prompts; no product-design decisions were required.
+- **Lesson:** Store contract tests must cover zero-value domain fields and empty byte slices, not only typical populated data.
