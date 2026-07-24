@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Foundation PR merged at `6cad5d1`; Tasks 1–3 have implementation commits, and Task 4 is in SPEC-alignment remediation. Stop after Task 4 passes both fresh reviews; the deferred Task 3 architecture gate below must be completed after resumption and before the `config-store-budget` PR is declared ready.
+**Status:** Paused after Task 4 as requested. Foundation PR is merged at `6cad5d1`; Tasks 1–4 have implementation commits and fresh reviews. The deferred Task 3 architecture gate below remains open and must be completed after resumption before the `config-store-budget` PR is declared ready or Task 5 begins.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -269,7 +269,7 @@ git commit -m "feat: define harness domain state machine"
 
 ---
 
-### Task 2: Strict Versioned Project Configuration — base complete (`83c03a2`, review fix `624f6b9`); Task 4 integration correction pending
+### Task 2: Strict Versioned Project Configuration — complete (`83c03a2`, review fix `624f6b9`, Task 4 integration correction `994530d`)
 
 **Files:**
 - Create: `internal/config/config.go`
@@ -390,7 +390,7 @@ git add internal/config testdata/config AGENT_LOG.md go.mod go.sum
 git commit -m "feat: add strict versioned harness configuration"
 ```
 
-- [ ] **Step 8: Align configured budget defaults and validation with SPEC §4.7**
+- [x] **Step 8: Align configured budget defaults and validation with SPEC §4.7**
 
 Before changing production code, add focused tests proving that omitted budget keys resolve to `30` decisions, `5` mutations, `2` protocol repairs, and `"20m"` wall-clock, including partially specified `[budget]` tables. Add table-driven tests proving that an explicitly configured zero or negative count, malformed duration, or zero/negative duration is rejected with a stable budget-validation error. Preinitialize the decoder target with the SPEC defaults so omission remains distinct from an explicit zero, then validate all resolved budget fields. This correction is part of the Task 4 integration boundary and must be reviewed with Task 4.
 
@@ -468,7 +468,7 @@ git commit -m "feat: persist hash-chained run events"
 
 ---
 
-### Task 4: Dual Budgets and No-Progress Detection — SPEC-alignment remediation in progress (`c381b15`, review fix `d015fb5`)
+### Task 4: Dual Budgets and No-Progress Detection — complete (`c381b15`, review fixes `d015fb5`, `994530d`)
 
 **Files:**
 - Create: `internal/budget/tracker.go`
@@ -531,7 +531,7 @@ git add internal/budget AGENT_LOG.md
 git commit -m "feat: enforce run budgets and progress stops"
 ```
 
-- [ ] **Step 5: Write failing SPEC-alignment tests**
+- [x] **Step 5: Write failing SPEC-alignment tests**
 
 Add tests before production changes for all three confirmed gaps:
 
@@ -541,7 +541,7 @@ Add tests before production changes for all three confirmed gaps:
 
 Also increase the re-entrant clock regression timeout from 200 ms to 2 seconds so unusually slow CI workers do not create a false deadlock report.
 
-- [ ] **Step 6: Run red and preserve evidence**
+- [x] **Step 6: Run red and preserve evidence**
 
 Run:
 
@@ -551,11 +551,11 @@ go test ./internal/config ./internal/budget -count=1
 
 Expected: FAIL because defaults/validation, per-decision-point repair reset, and typed warning outcomes are not yet implemented. Record the failing assertions in `AGENT_LOG.md`.
 
-- [ ] **Step 7: Implement the minimum aligned contracts and run green**
+- [x] **Step 7: Implement the minimum aligned contracts and run green**
 
 Implement only the behavior named in Step 5. Do not begin the deferred Task 3 architecture work or Task 5. Then run the focused suites, race detector, common task exit gate, and Linux amd64 cross-compilation.
 
-- [ ] **Step 8: Run two fresh reviews, update evidence, and pause**
+- [x] **Step 8: Run two fresh reviews, update evidence, and pause**
 
 Give the Task 4 alignment diff first to a fresh SPEC-compliance reviewer and then to a different fresh code-quality reviewer. Fix all Critical and Important findings within Task 4 scope, update this heading and completed checkboxes with the final commit hash, append `AGENT_LOG.md`, and stop. Do not start the deferred gate or Task 5 in this session.
 

@@ -249,3 +249,14 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Scope verification:** Only `internal/config`, `internal/budget`, and this log changed. Task 3 store code, `go.mod`, `go.sum`, Task 5, and PLAN completion markers were not modified.
 - **Human intervention:** The student confirmed the SPEC reconciliation, requested the plan update, and required a pause after Task 4.
 - **Concern:** None within the Task 4 scope; the separately documented Task 3 architecture gate remains intentionally deferred.
+
+## 2026-07-24 — Task 4 SPEC-Alignment Review and Pause
+
+- **Task:** TASK-4-SPEC-ALIGNMENT-REVIEW-001.
+- **Skills:** `superpowers:subagent-driven-development`, `superpowers:requesting-code-review`, `superpowers:receiving-code-review`, `superpowers:verification-before-completion`.
+- **Implementation commit:** `994530d` (`fix: align Task 4 budget semantics with spec`).
+- **SPEC review:** A fresh reviewer compared the diff with the course documents, `SPEC.md` §4.7/§6.1, and the corrected plan. Result: **Approved**, with no Critical, Important, or Minor findings.
+- **Quality review:** A different fresh reviewer requested one Important regression test proving a rejected decision cannot reset or reopen the current protocol-repair allowance, plus two documentation/error-message clarifications. After those corrections, re-review result: **Approved**, with no remaining findings.
+- **Verification:** The controller's fresh final gate passed: `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, and Linux amd64 CGO-disabled `go build ./...`.
+- **Pause boundary:** Task 4 is complete. The confirmed Task 3 architecture issues remain unchecked in the post-Task-4 integration gate; no Task 3 remediation, Task 5 implementation, dependency tidy, branch publication, or PR-readiness claim was performed.
+- **Lesson:** Per-decision counters need tests for both successful boundary transitions and rejected transitions; otherwise a future reset-before-validation regression can silently turn a bounded repair loop into an unbounded one.
