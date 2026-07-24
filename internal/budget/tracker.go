@@ -28,15 +28,22 @@ const (
 // StopError is returned when a budget has been exhausted.
 // Its Reason provides stable programmatic inspection and its cause supports errors.Is.
 type StopError struct {
-	Reason StopReason
+	reason StopReason
 	cause  error
 }
 
 func (e *StopError) Error() string {
-	return fmt.Sprintf("budget stopped: %s", e.Reason)
+	return fmt.Sprintf("budget stopped: %s", e.reason)
 }
 
 func (e *StopError) Unwrap() error { return e.cause }
+
+// Reason returns the immutable reason the tracker stopped.
+func (e *StopError) Reason() StopReason { return e.reason }
+
+func newStopError(reason StopReason, cause error) *StopError {
+	return &StopError{reason: reason, cause: cause}
+}
 
 // Limits defines the maximum resources available to a single run.
 type Limits struct {
@@ -61,18 +68,25 @@ type Clock interface {
 
 // Tracker records consumption and rejects attempts that would exceed its limits.
 type Tracker struct {
-	mu     sync.Mutex
-	limits Limits
-	usage  Usage
-	clock  Clock
+	mu        sync.Mutex
+	limits    Limits
+	usage     Usage
+	startedAt time.Time
+	clock     Clock
 }
 
 // New creates a tracker beginning at the clock's current time.
+// clock must be non-nil.
 func New(limits Limits, clock Clock) *Tracker {
+	if clock == nil {
+		panic("budget: nil Clock")
+	}
+	startedAt := clock.Now()
 	return &Tracker{
-		limits: limits,
-		usage:  Usage{StartedAt: clock.Now()},
-		clock:  clock,
+		limits:    limits,
+		usage:     Usage{StartedAt: startedAt},
+		startedAt: startedAt,
+		clock:     clock,
 	}
 }
 
@@ -99,7 +113,7 @@ func (t *Tracker) RecordProtocolRepair() error {
 
 func (t *Tracker) record(used *int, limit int, reason StopReason, cause error) error {
 	if limit <= 0 || *used >= limit {
-		return &StopError{Reason: reason, cause: cause}
+		return newStopError(reason, cause)
 	}
 	*used++
 	return nil
@@ -107,10 +121,9 @@ func (t *Tracker) record(used *int, limit int, reason StopReason, cause error) e
 
 // CheckTime returns a stop error once the wall-clock budget has elapsed.
 func (t *Tracker) CheckTime() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.limits.WallClock <= 0 || t.clock.Now().Sub(t.usage.StartedAt) >= t.limits.WallClock {
-		return &StopError{Reason: StopReasonWallClockBudget, cause: ErrWallClockBudget}
+	now := t.clock.Now()
+	if t.limits.WallClock <= 0 || now.Sub(t.startedAt) >= t.limits.WallClock {
+		return newStopError(StopReasonWallClockBudget, ErrWallClockBudget)
 	}
 	return nil
 }

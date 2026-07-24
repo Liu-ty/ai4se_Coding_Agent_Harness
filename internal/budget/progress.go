@@ -1,7 +1,11 @@
 package budget
 
+import "sync"
+
 // ProgressDetector stops a run after repeated feedback with no observed progress.
+// It is safe for concurrent callers to share.
 type ProgressDetector struct {
+	mu        sync.Mutex
 	threshold int
 
 	lastFingerprint string
@@ -20,6 +24,9 @@ func NewProgressDetector(threshold int) *ProgressDetector {
 // Observe records feedback. It returns true when the same complete pair has
 // occurred at least threshold times consecutively.
 func (p *ProgressDetector) Observe(fingerprint, diffDigest string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if fingerprint == "" || diffDigest == "" {
 		p.lastFingerprint = ""
 		p.lastDiffDigest = ""

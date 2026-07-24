@@ -2,6 +2,8 @@ package budget
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -11,6 +13,24 @@ type fakeClock struct {
 }
 
 func (c *fakeClock) Now() time.Time { return c.now }
+
+type staticClock struct {
+	now time.Time
+}
+
+func (c staticClock) Now() time.Time { return c.now }
+
+type reentrantClock struct {
+	now     time.Time
+	tracker *Tracker
+}
+
+func (c *reentrantClock) Now() time.Time {
+	if c.tracker != nil {
+		c.tracker.Snapshot()
+	}
+	return c.now
+}
 
 func TestTrackerStopsAtEachCountLimitWithoutOverIncrement(t *testing.T) {
 	startedAt := time.Date(2026, time.July, 24, 9, 0, 0, 0, time.UTC)
@@ -117,20 +137,72 @@ func TestTrackerExhaustsNonPositiveWallClockImmediately(t *testing.T) {
 }
 
 func TestStopErrorsExposeReasonAndSupportErrorsIs(t *testing.T) {
-	tr := New(Limits{MaxDecisions: 1}, &fakeClock{})
-	if err := tr.RecordDecision(); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name    string
+		limits  Limits
+		exhaust func(*Tracker) error
+		cause   error
+		reason  StopReason
+	}{
+		{
+			name:   "decision",
+			limits: Limits{MaxDecisions: 1},
+			exhaust: func(tr *Tracker) error {
+				if err := tr.RecordDecision(); err != nil {
+					return fmt.Errorf("first decision: %w", err)
+				}
+				return tr.RecordDecision()
+			},
+			cause:  ErrDecisionBudget,
+			reason: StopReasonDecisionBudget,
+		},
+		{
+			name:   "mutation",
+			limits: Limits{MaxMutations: 1},
+			exhaust: func(tr *Tracker) error {
+				if err := tr.RecordMutation(); err != nil {
+					return fmt.Errorf("first mutation: %w", err)
+				}
+				return tr.RecordMutation()
+			},
+			cause:  ErrMutationBudget,
+			reason: StopReasonMutationBudget,
+		},
+		{
+			name:   "protocol repair",
+			limits: Limits{MaxProtocolRepairs: 1},
+			exhaust: func(tr *Tracker) error {
+				if err := tr.RecordProtocolRepair(); err != nil {
+					return fmt.Errorf("first protocol repair: %w", err)
+				}
+				return tr.RecordProtocolRepair()
+			},
+			cause:  ErrProtocolRepairBudget,
+			reason: StopReasonProtocolRepairBudget,
+		},
+		{
+			name:    "wall clock",
+			limits:  Limits{WallClock: 0},
+			exhaust: (*Tracker).CheckTime,
+			cause:   ErrWallClockBudget,
+			reason:  StopReasonWallClockBudget,
+		},
 	}
-	err := tr.RecordDecision()
-	if !errors.Is(err, ErrDecisionBudget) {
-		t.Fatalf("errors.Is(%v, ErrDecisionBudget) = false", err)
-	}
-	var stop *StopError
-	if !errors.As(err, &stop) {
-		t.Fatalf("errors.As(%v, *StopError) = false", err)
-	}
-	if stop.Reason != StopReasonDecisionBudget {
-		t.Fatalf("stop reason = %q, want %q", stop.Reason, StopReasonDecisionBudget)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.exhaust(New(tt.limits, staticClock{}))
+			if !errors.Is(err, tt.cause) {
+				t.Fatalf("errors.Is(%v, %v) = false", err, tt.cause)
+			}
+			var stop *StopError
+			if !errors.As(err, &stop) {
+				t.Fatalf("errors.As(%v, *StopError) = false", err)
+			}
+			if got := stop.Reason(); got != tt.reason {
+				t.Fatalf("stop reason = %q, want %q", got, tt.reason)
+			}
+		})
 	}
 }
 
@@ -145,5 +217,74 @@ func TestSnapshotIsAValueSnapshot(t *testing.T) {
 	}
 	if snapshot.Decisions != 1 {
 		t.Fatalf("saved snapshot decisions = %d, want 1", snapshot.Decisions)
+	}
+}
+
+func TestNewPanicsClearlyForNilClock(t *testing.T) {
+	defer func() {
+		if got := recover(); got != "budget: nil Clock" {
+			t.Fatalf("panic = %#v, want %q", got, "budget: nil Clock")
+		}
+	}()
+	New(Limits{}, nil)
+}
+
+func TestCheckTimeDoesNotHoldLockWhileCallingClock(t *testing.T) {
+	clock := &reentrantClock{now: time.Date(2026, time.July, 24, 9, 0, 0, 0, time.UTC)}
+	tr := New(Limits{WallClock: time.Hour}, clock)
+	clock.tracker = tr
+
+	done := make(chan error, 1)
+	go func() { done <- tr.CheckTime() }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("CheckTime: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("CheckTime did not return; Clock.Now appears to run while Tracker is locked")
+	}
+}
+
+func TestTrackerConcurrentRecordAndSnapshotCapsUsage(t *testing.T) {
+	tr := New(Limits{MaxDecisions: 100}, staticClock{})
+	const recorders = 16
+	const attemptsPerRecorder = 20
+	const snapshotters = 4
+	const snapshotsPerWorker = 100
+
+	errs := make(chan error, recorders*attemptsPerRecorder)
+	var workers sync.WaitGroup
+	for range recorders {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for range attemptsPerRecorder {
+				if err := tr.RecordDecision(); err != nil {
+					errs <- err
+				}
+			}
+		}()
+	}
+	for range snapshotters {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for range snapshotsPerWorker {
+				_ = tr.Snapshot()
+			}
+		}()
+	}
+	workers.Wait()
+	close(errs)
+
+	for err := range errs {
+		if !errors.Is(err, ErrDecisionBudget) {
+			t.Fatalf("record error = %v, want decision budget stop", err)
+		}
+	}
+	if got := tr.Snapshot().Decisions; got != 100 {
+		t.Fatalf("final decisions = %d, want capped usage 100", got)
 	}
 }
