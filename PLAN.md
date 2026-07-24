@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Cold-start evidence and Tasks 1–2 committed; Foundation PR review is pending, and Tasks 3–4 have not started.
+**Status:** Foundation PR merged at `6cad5d1`; Tasks 1–3 are committed and independently reviewed, and Task 4 has not started.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -392,7 +392,7 @@ git commit -m "feat: add strict versioned harness configuration"
 
 ---
 
-### Task 3: Hash-Chained Memory and SQLite Event Store
+### Task 3: Hash-Chained Memory and SQLite Event Store — complete (`b7814ee`, review fixes `110cbf6`, `01891d0`)
 
 **Files:**
 - Create: `internal/domain/events.go`
@@ -407,7 +407,7 @@ git commit -m "feat: add strict versioned harness configuration"
 - Consumes: `domain.Run`, `domain.RunEvent`, `domain.Artifact`.
 - Produces: `store.Store` with `CreateRun`, `AppendEvent`, `GetRun`, `ListEvents`, and `PutArtifact`; memory and SQLite implementations must pass one contract suite.
 
-- [ ] **Step 1: Write a store contract that fails for both implementations**
+- [x] **Step 1: Write a store contract that fails for both implementations**
 
 ```go
 type factory func(t *testing.T) store.Store
@@ -423,12 +423,12 @@ func contract(t *testing.T, newStore factory) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/store -v`  
 Expected: FAIL because store/domain event types are missing.
 
-- [ ] **Step 3: Define events and store contract**
+- [x] **Step 3: Define events and store contract**
 
 ```go
 type RunEvent struct { RunID RunID; Sequence uint64; Type string; At time.Time; Payload json.RawMessage; PreviousHash, Hash string }
@@ -448,11 +448,11 @@ type Store interface {
 
 Hash input is canonical `run_id | sequence | type | unix_nano | payload | previous_hash`, encoded with length prefixes and SHA-256.
 
-- [ ] **Step 4: Implement memory then SQLite transaction semantics**
+- [x] **Step 4: Implement memory then SQLite transaction semantics**
 
 The SQLite migration creates `runs`, `run_events`, `artifacts`, and `schema_migrations`, unique on `(run_id, sequence)`. `UpdateRun` updates the run snapshot and appends the event inside one SQL transaction. Use `modernc.org/sqlite`; configure one writer, foreign keys, busy timeout, and WAL for local mode.
 
-- [ ] **Step 5: Run contract tests, reopen SQLite, and commit**
+- [x] **Step 5: Run contract tests, reopen SQLite, and commit**
 
 Run: `go test ./internal/store -v`  
 Expected: PASS for memory, SQLite, concurrent sequence allocation, rollback-on-event-failure, and reopen persistence.
