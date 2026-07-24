@@ -2,6 +2,16 @@ package budget
 
 import "sync"
 
+// ProgressOutcome describes whether an observation permits progress, records a
+// warning, or requires the run to stop.
+type ProgressOutcome string
+
+const (
+	ProgressContinue ProgressOutcome = "continue"
+	ProgressWarning  ProgressOutcome = "warning"
+	ProgressStop     ProgressOutcome = "stop"
+)
+
 // ProgressDetector stops a run after repeated feedback with no observed progress.
 // It is safe for concurrent callers to share.
 type ProgressDetector struct {
@@ -21,9 +31,8 @@ func NewProgressDetector(threshold int) *ProgressDetector {
 	return &ProgressDetector{threshold: threshold}
 }
 
-// Observe records feedback. It returns true when the same complete pair has
-// occurred at least threshold times consecutively.
-func (p *ProgressDetector) Observe(fingerprint, diffDigest string) bool {
+// Observe records feedback and classifies the observed progress.
+func (p *ProgressDetector) Observe(fingerprint, diffDigest string) ProgressOutcome {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -31,16 +40,27 @@ func (p *ProgressDetector) Observe(fingerprint, diffDigest string) bool {
 		p.lastFingerprint = ""
 		p.lastDiffDigest = ""
 		p.consecutive = 0
-		return false
+		return ProgressContinue
 	}
 
 	if fingerprint == p.lastFingerprint && diffDigest == p.lastDiffDigest {
 		p.consecutive++
-	} else {
-		p.lastFingerprint = fingerprint
-		p.lastDiffDigest = diffDigest
-		p.consecutive = 1
+		if p.consecutive >= p.threshold {
+			return ProgressStop
+		}
+		return ProgressContinue
 	}
 
-	return p.consecutive >= p.threshold
+	outcome := ProgressContinue
+	if fingerprint == p.lastFingerprint && p.lastDiffDigest != "" {
+		outcome = ProgressWarning
+	}
+	p.lastFingerprint = fingerprint
+	p.lastDiffDigest = diffDigest
+	p.consecutive = 1
+
+	if p.consecutive >= p.threshold {
+		return ProgressStop
+	}
+	return outcome
 }

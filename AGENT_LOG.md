@@ -236,3 +236,16 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Key output:** Amended `PLAN.md` with explicit failing tests, minimal implementation behavior, fresh two-stage review, and a hard pause after Task 4. Recorded that `SPEC.md` itself remains authoritative and unchanged.
 - **Human intervention:** The student requested SPEC confirmation, plan correction, completion of Task 4, and a pause immediately afterward.
 - **Lesson:** A prior task-level approval does not override a later whole-branch finding when the approved SPEC states a stricter observable contract; remediation scope should follow task ownership rather than mixing architecture work into an unrelated task.
+
+## 2026-07-24 - Task 4 SPEC-Alignment Remediation
+
+- **Task:** TASK-4-SPEC-ALIGNMENT-001 (implementation phase; review and completion markers remain pending).
+- **Skill:** `superpowers:test-driven-development`.
+- **Scope:** Task 2 Step 8 and Task 4 Steps 5-7 only: configured budget defaults/validation, per-decision-point protocol-repair allowance, typed progress outcomes, and the re-entrant clock timeout correction.
+- **Red evidence:** After adding the focused tests and before modifying production code, `go test ./internal/config ./internal/budget -count=1` failed. The config package reported `undefined: config.ErrInvalidBudget`; the budget package reported `undefined: ProgressOutcome`, `ProgressContinue`, `ProgressWarning`, and `ProgressStop`. These failures directly identify the missing SPEC-aligned contracts rather than a test setup or environment failure.
+- **Green evidence:** The focused config/budget command passed after the minimum implementation. `go test -race ./internal/config ./internal/budget -count=1`, `go test ./... -count=1`, `go vet ./...`, `gofmt -l internal`, `git diff --check`, and a `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...` cross-compilation also passed.
+- **Implementation:** `config.Load` now decodes into the four SPEC defaults and rejects every resolved non-positive count or malformed/non-positive wall-clock value with `ErrInvalidBudget`. A successful `Tracker.RecordDecision` resets only the current decision point's protocol-repair usage. `ProgressDetector.Observe` now returns the typed outcomes `continue`, `warning`, and `stop`, with a warning for the same failure plus a changed diff. The re-entrant clock test timeout is 2 seconds.
+- **Review hardening:** The first fresh SPEC review approved the diff with no findings. The fresh quality review found that the already-correct rejected-decision path lacked regression coverage, so a test now proves a failed `RecordDecision` neither clears current protocol-repair usage nor reopens an exhausted allowance. The review also prompted clarification that `Usage.ProtocolRepairs` is current-decision-point usage and a broader budget sentinel message that covers malformed durations.
+- **Scope verification:** Only `internal/config`, `internal/budget`, and this log changed. Task 3 store code, `go.mod`, `go.sum`, Task 5, and PLAN completion markers were not modified.
+- **Human intervention:** The student confirmed the SPEC reconciliation, requested the plan update, and required a pause after Task 4.
+- **Concern:** None within the Task 4 scope; the separately documented Task 3 architecture gate remains intentionally deferred.

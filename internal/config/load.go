@@ -21,6 +21,7 @@ var (
 	ErrInvalidTimeout           = errors.New("timeout must be a positive duration string")
 	ErrInvalidProfile           = errors.New("default_profile must be review, supervised, or workspace-auto")
 	ErrEmptyWorkingDirectory    = errors.New("working directory must not be empty")
+	ErrInvalidBudget            = errors.New("invalid budget configuration")
 )
 
 // validProfiles is the set of recognized permission profile values.
@@ -34,7 +35,14 @@ var validProfiles = map[string]bool{
 // It rejects unknown fields, incorrect version, duplicate stage IDs,
 // absolute working directories, empty executables, and invalid timeouts.
 func Load(r io.Reader) (Config, error) {
-	var cfg Config
+	cfg := Config{
+		Budget: BudgetConfig{
+			MaxDecisions:       30,
+			MaxMutations:       5,
+			MaxProtocolRepairs: 2,
+			WallClock:          "20m",
+		},
+	}
 	md, err := toml.DecodeReader(r, &cfg)
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -57,6 +65,10 @@ func Load(r io.Reader) (Config, error) {
 	// Validate default profile.
 	if !validProfiles[string(cfg.DefaultProfile)] {
 		return Config{}, fmt.Errorf("%w: %q", ErrInvalidProfile, cfg.DefaultProfile)
+	}
+
+	if err := validateBudget(cfg.Budget); err != nil {
+		return Config{}, err
 	}
 
 	// Validate validation stages.
@@ -100,6 +112,25 @@ func Load(r io.Reader) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func validateBudget(budget BudgetConfig) error {
+	switch {
+	case budget.MaxDecisions <= 0:
+		return fmt.Errorf("%w: max_decisions must be positive", ErrInvalidBudget)
+	case budget.MaxMutations <= 0:
+		return fmt.Errorf("%w: max_mutations must be positive", ErrInvalidBudget)
+	case budget.MaxProtocolRepairs <= 0:
+		return fmt.Errorf("%w: max_protocol_repairs must be positive", ErrInvalidBudget)
+	}
+	wallClock, err := time.ParseDuration(budget.WallClock)
+	if err != nil {
+		return fmt.Errorf("%w: wall_clock: %v", ErrInvalidBudget, err)
+	}
+	if wallClock <= 0 {
+		return fmt.Errorf("%w: wall_clock must be positive", ErrInvalidBudget)
+	}
+	return nil
 }
 
 func isAbsoluteWorkingDirectory(path string) bool {

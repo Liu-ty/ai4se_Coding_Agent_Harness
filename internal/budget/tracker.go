@@ -54,6 +54,7 @@ type Limits struct {
 }
 
 // Usage is a value snapshot of a tracker's resource consumption.
+// ProtocolRepairs counts repairs at the current decision point, not across the run.
 type Usage struct {
 	Decisions       int
 	Mutations       int
@@ -94,7 +95,11 @@ func New(limits Limits, clock Clock) *Tracker {
 func (t *Tracker) RecordDecision() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.record(&t.usage.Decisions, t.limits.MaxDecisions, StopReasonDecisionBudget, ErrDecisionBudget)
+	if err := t.record(&t.usage.Decisions, t.limits.MaxDecisions, StopReasonDecisionBudget, ErrDecisionBudget); err != nil {
+		return err
+	}
+	t.usage.ProtocolRepairs = 0
+	return nil
 }
 
 // RecordMutation records one mutation when the mutation budget permits it.

@@ -102,6 +102,57 @@ func TestTrackerExhaustsNonPositiveCountLimitsImmediately(t *testing.T) {
 	}
 }
 
+func TestTrackerResetsProtocolRepairsAfterSuccessfulDecision(t *testing.T) {
+	tr := New(Limits{MaxDecisions: 2, MaxProtocolRepairs: 2}, &fakeClock{})
+
+	for repair := 1; repair <= 2; repair++ {
+		if err := tr.RecordProtocolRepair(); err != nil {
+			t.Fatalf("protocol repair %d at first decision point: %v", repair, err)
+		}
+	}
+	if err := tr.RecordProtocolRepair(); !errors.Is(err, ErrProtocolRepairBudget) {
+		t.Fatalf("third protocol repair error = %v, want protocol repair budget stop", err)
+	}
+
+	if err := tr.RecordDecision(); err != nil {
+		t.Fatalf("record next decision: %v", err)
+	}
+	if got := tr.Snapshot().ProtocolRepairs; got != 0 {
+		t.Fatalf("protocol repairs after next decision = %d, want 0", got)
+	}
+	for repair := 1; repair <= 2; repair++ {
+		if err := tr.RecordProtocolRepair(); err != nil {
+			t.Fatalf("protocol repair %d at next decision point: %v", repair, err)
+		}
+	}
+	if err := tr.RecordProtocolRepair(); !errors.Is(err, ErrProtocolRepairBudget) {
+		t.Fatalf("third protocol repair at next decision error = %v, want protocol repair budget stop", err)
+	}
+}
+
+func TestTrackerDoesNotResetProtocolRepairsAfterRejectedDecision(t *testing.T) {
+	tr := New(Limits{MaxDecisions: 1, MaxProtocolRepairs: 2}, &fakeClock{})
+
+	if err := tr.RecordDecision(); err != nil {
+		t.Fatalf("record first decision: %v", err)
+	}
+	for repair := 1; repair <= 2; repair++ {
+		if err := tr.RecordProtocolRepair(); err != nil {
+			t.Fatalf("protocol repair %d: %v", repair, err)
+		}
+	}
+
+	if err := tr.RecordDecision(); !errors.Is(err, ErrDecisionBudget) {
+		t.Fatalf("rejected decision error = %v, want decision budget stop", err)
+	}
+	if got := tr.Snapshot().ProtocolRepairs; got != 2 {
+		t.Fatalf("protocol repairs after rejected decision = %d, want 2", got)
+	}
+	if err := tr.RecordProtocolRepair(); !errors.Is(err, ErrProtocolRepairBudget) {
+		t.Fatalf("protocol repair after rejected decision error = %v, want protocol repair budget stop", err)
+	}
+}
+
 func TestTrackerCheckTimeAtWallClockBoundaryWithoutMutation(t *testing.T) {
 	startedAt := time.Date(2026, time.July, 24, 9, 0, 0, 0, time.UTC)
 	clock := &fakeClock{now: startedAt}
@@ -242,7 +293,7 @@ func TestCheckTimeDoesNotHoldLockWhileCallingClock(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CheckTime: %v", err)
 		}
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		t.Fatal("CheckTime did not return; Clock.Now appears to run while Tracker is locked")
 	}
 }

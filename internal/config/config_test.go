@@ -35,6 +35,86 @@ func TestLoadRejectsInvalidProfile(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesBudgetDefaultsWhenOmittedOrPartial(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  config.BudgetConfig
+	}{
+		{
+			name: "omitted budget",
+			input: `
+version = 1
+default_profile = "workspace-auto"
+`,
+			want: config.BudgetConfig{
+				MaxDecisions:       30,
+				MaxMutations:       5,
+				MaxProtocolRepairs: 2,
+				WallClock:          "20m",
+			},
+		},
+		{
+			name: "partial budget",
+			input: `
+version = 1
+default_profile = "workspace-auto"
+[budget]
+max_mutations = 7
+`,
+			want: config.BudgetConfig{
+				MaxDecisions:       30,
+				MaxMutations:       7,
+				MaxProtocolRepairs: 2,
+				WallClock:          "20m",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := config.Load(strings.NewReader(tt.input))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got.Budget != tt.want {
+				t.Fatalf("budget = %+v, want %+v", got.Budget, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidBudgetValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+		value string
+	}{
+		{name: "zero decisions", field: "max_decisions", value: "0"},
+		{name: "negative decisions", field: "max_decisions", value: "-1"},
+		{name: "zero mutations", field: "max_mutations", value: "0"},
+		{name: "negative mutations", field: "max_mutations", value: "-1"},
+		{name: "zero protocol repairs", field: "max_protocol_repairs", value: "0"},
+		{name: "negative protocol repairs", field: "max_protocol_repairs", value: "-1"},
+		{name: "malformed wall clock", field: "wall_clock", value: `"later"`},
+		{name: "zero wall clock", field: "wall_clock", value: `"0s"`},
+		{name: "negative wall clock", field: "wall_clock", value: `"-1m"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := "version = 1\n" +
+				"default_profile = \"workspace-auto\"\n" +
+				"[budget]\n" +
+				tt.field + " = " + tt.value + "\n"
+			_, err := config.Load(strings.NewReader(input))
+			if !errors.Is(err, config.ErrInvalidBudget) {
+				t.Fatalf("error = %v, want ErrInvalidBudget", err)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsDuplicateStageIDs(t *testing.T) {
 	toml := `
 version = 1

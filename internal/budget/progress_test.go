@@ -5,126 +5,79 @@ import (
 	"testing"
 )
 
+func requireProgressOutcome(t *testing.T, got, want ProgressOutcome) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("outcome = %q, want %q", got, want)
+	}
+}
+
 func TestProgressDetectorStopsOnThresholdOfSameFailureAndDiff(t *testing.T) {
 	p := NewProgressDetector(2)
-	if p.Observe("fp", "diff-a") {
-		t.Fatal("first observation must not stop")
-	}
-	if !p.Observe("fp", "diff-a") {
-		t.Fatal("second identical observation must stop")
-	}
+	requireProgressOutcome(t, p.Observe("fp", "diff-a"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp", "diff-a"), ProgressStop)
 }
 
 func TestProgressDetectorStaysStoppedOnThirdIdenticalPair(t *testing.T) {
 	p := NewProgressDetector(2)
 	p.Observe("fp", "diff")
 	p.Observe("fp", "diff")
-	if !p.Observe("fp", "diff") {
-		t.Fatal("a third identical pair must remain stopped")
-	}
+	requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressStop)
 }
 
-func TestProgressDetectorResetsAfterProgress(t *testing.T) {
+func TestProgressDetectorWarnsOnSameFailureWithChangedDiff(t *testing.T) {
 	p := NewProgressDetector(2)
-	if p.Observe("fp", "diff-a") {
-		t.Fatal("first observation must not stop")
-	}
-	if p.Observe("fp", "diff-b") {
-		t.Fatal("changed diff is progress and must reset the count")
-	}
-	if !p.Observe("fp", "diff-b") {
-		t.Fatal("repeated post-progress pair must stop at threshold")
-	}
+	requireProgressOutcome(t, p.Observe("fp", "diff-a"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp", "diff-b"), ProgressWarning)
+	requireProgressOutcome(t, p.Observe("fp", "diff-b"), ProgressStop)
 }
 
-func TestProgressDetectorDoesNotStopOnSameFailureWithDifferentDiff(t *testing.T) {
+func TestProgressDetectorContinuesOnDifferentFailureWithSameDiff(t *testing.T) {
 	p := NewProgressDetector(2)
-	if p.Observe("fp", "diff-a") {
-		t.Fatal("first observation must not stop")
-	}
-	if p.Observe("fp", "diff-b") {
-		t.Fatal("same failure with a changed diff must not stop")
-	}
-}
-
-func TestProgressDetectorResetsOnDifferentFailureWithSameDiff(t *testing.T) {
-	p := NewProgressDetector(2)
-	if p.Observe("fp-a", "diff") {
-		t.Fatal("first observation must not stop")
-	}
-	if p.Observe("fp-b", "diff") {
-		t.Fatal("different failure must reset the count")
-	}
-	if !p.Observe("fp-b", "diff") {
-		t.Fatal("repeated new pair must stop at threshold")
-	}
+	requireProgressOutcome(t, p.Observe("fp-a", "diff"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp-b", "diff"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp-b", "diff"), ProgressStop)
 }
 
 func TestProgressDetectorNormalizesNonPositiveThresholds(t *testing.T) {
 	for _, threshold := range []int{0, -1, 1} {
 		t.Run("threshold", func(t *testing.T) {
 			p := NewProgressDetector(threshold)
-			if !p.Observe("fp", "diff") {
-				t.Fatalf("threshold %d must stop on the first complete pair", threshold)
-			}
+			requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressStop)
 		})
 	}
 }
 
 func TestProgressDetectorEmptyFingerprintResetsEvidence(t *testing.T) {
 	p := NewProgressDetector(2)
-	if p.Observe("fp", "diff") {
-		t.Fatal("first observation must not stop")
-	}
-	if p.Observe("", "diff") {
-		t.Fatal("empty fingerprint must not stop")
-	}
-	if p.Observe("fp", "diff") {
-		t.Fatal("empty fingerprint must reset the prior evidence")
-	}
-	if !p.Observe("fp", "diff") {
-		t.Fatal("second complete pair after an empty fingerprint must stop")
-	}
+	requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("", "diff"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressStop)
 }
 
 func TestProgressDetectorEmptyDiffResetsEvidence(t *testing.T) {
 	p := NewProgressDetector(2)
-	if p.Observe("fp", "diff") {
-		t.Fatal("first observation must not stop")
-	}
-	if p.Observe("fp", "") {
-		t.Fatal("empty diff must not stop")
-	}
-	if p.Observe("fp", "diff") {
-		t.Fatal("empty diff must reset the prior evidence")
-	}
-	if !p.Observe("fp", "diff") {
-		t.Fatal("second complete pair after an empty diff must stop")
-	}
+	requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp", ""), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressStop)
 }
 
 func TestProgressDetectorChangedEvidenceAfterStopResets(t *testing.T) {
 	p := NewProgressDetector(2)
 	p.Observe("fp-a", "diff-a")
 	p.Observe("fp-a", "diff-a")
-	if p.Observe("fp-b", "diff-b") {
-		t.Fatal("changed evidence after a stop must reset")
-	}
-	if !p.Observe("fp-b", "diff-b") {
-		t.Fatal("second changed pair must stop")
-	}
+	requireProgressOutcome(t, p.Observe("fp-b", "diff-b"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp-b", "diff-b"), ProgressStop)
 }
 
 func TestProgressDetectorEmptyEvidenceAfterStopResets(t *testing.T) {
 	p := NewProgressDetector(2)
 	p.Observe("fp", "diff")
 	p.Observe("fp", "diff")
-	if p.Observe("", "diff") {
-		t.Fatal("empty evidence after a stop must not stop")
-	}
-	if p.Observe("fp", "diff") {
-		t.Fatal("empty evidence after a stop must reset")
-	}
+	requireProgressOutcome(t, p.Observe("", "diff"), ProgressContinue)
+	requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressContinue)
 }
 
 func TestProgressDetectorSupportsConcurrentObservation(t *testing.T) {
@@ -139,7 +92,5 @@ func TestProgressDetectorSupportsConcurrentObservation(t *testing.T) {
 		}()
 	}
 	workers.Wait()
-	if !p.Observe("fp", "diff") {
-		t.Fatal("repeated complete evidence must remain stopped after concurrent observation")
-	}
+	requireProgressOutcome(t, p.Observe("fp", "diff"), ProgressStop)
 }
