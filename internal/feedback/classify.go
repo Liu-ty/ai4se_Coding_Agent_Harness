@@ -105,6 +105,8 @@ func classify(in Input, text string) (string, []domain.Evidence) {
 		return "ENVIRONMENT_FAILURE", diagnostics
 	case executor.CodeExecutionError:
 		return "ENVIRONMENT_FAILURE", diagnostics
+	case executor.CodeCleanupError:
+		return "INCOMPLETE_PROCESS_CLEANUP", diagnostics
 	}
 
 	for _, rule := range compiledRules {
@@ -223,7 +225,7 @@ func missingExecutable(text string) bool {
 
 func retryable(category string) bool {
 	switch category {
-	case "APPROVAL_REQUIRED", "POLICY_DENIED", "PROTOCOL_ERROR":
+	case "APPROVAL_REQUIRED", "POLICY_DENIED", "PROTOCOL_ERROR", "INCOMPLETE_PROCESS_CLEANUP":
 		return false
 	default:
 		return true

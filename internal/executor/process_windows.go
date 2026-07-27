@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -13,7 +14,12 @@ import (
 )
 
 type processTree struct {
-	job windows.Handle
+	mu               sync.Mutex
+	job              windows.Handle
+	assigned         bool
+	terminatePending bool
+	terminated       bool
+	cleanupErr       error
 }
 
 func prepareProcessTree(cmd *exec.Cmd) (processTreeController, error) {
@@ -41,6 +47,9 @@ func prepareProcessTree(cmd *exec.Cmd) (processTreeController, error) {
 }
 
 func (p *processTree) afterStart(cmd *exec.Cmd) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	proc, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
 	if err != nil {
 		return err
@@ -48,6 +57,11 @@ func (p *processTree) afterStart(cmd *exec.Cmd) error {
 	defer windows.CloseHandle(proc)
 	if err := windows.AssignProcessToJobObject(p.job, proc); err != nil {
 		return err
+	}
+	p.assigned = true
+	if p.terminatePending {
+		_ = p.closeLocked()
+		return nil
 	}
 	return resumeProcessThreads(uint32(cmd.Process.Pid))
 }
@@ -95,13 +109,30 @@ func resumeProcessThreads(pid uint32) error {
 	return nil
 }
 
-func (p *processTree) terminate() {
-	p.close()
+func (p *processTree) terminate() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.terminatePending = true
+	if !p.assigned {
+		return p.cleanupErr
+	}
+	return p.closeLocked()
 }
 
-func (p *processTree) close() {
+func (p *processTree) close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closeLocked()
+}
+
+func (p *processTree) closeLocked() error {
+	if p.terminated {
+		return p.cleanupErr
+	}
+	p.terminated = true
 	if p.job != 0 {
-		_ = windows.CloseHandle(p.job)
+		p.cleanupErr = windows.CloseHandle(p.job)
 		p.job = 0
 	}
+	return p.cleanupErr
 }

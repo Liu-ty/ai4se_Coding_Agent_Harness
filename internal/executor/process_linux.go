@@ -4,6 +4,7 @@ package executor
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -15,6 +16,7 @@ type processTree struct {
 	pid              int
 	terminatePending bool
 	terminated       bool
+	cleanupErr       error
 }
 
 func prepareProcessTree(cmd *exec.Cmd) (processTreeController, error) {
@@ -25,48 +27,52 @@ func prepareProcessTree(cmd *exec.Cmd) (processTreeController, error) {
 func (p *processTree) afterStart(cmd *exec.Cmd) error {
 	p.mu.Lock()
 	p.pid = cmd.Process.Pid
-	terminate := p.terminatePending && !p.terminated
-	if terminate {
-		p.terminated = true
-	}
+	terminate := p.terminatePending
 	p.mu.Unlock()
 	if terminate {
-		terminateProcessGroup(cmd.Process.Pid)
+		_ = p.terminate()
 	}
 	return nil
 }
 
-func (p *processTree) terminate() {
+func (p *processTree) terminate() error {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.terminated {
-		p.mu.Unlock()
-		return
+		return p.cleanupErr
 	}
 	if p.pid <= 0 {
 		p.terminatePending = true
-		p.mu.Unlock()
-		return
+		return nil
 	}
 	p.terminated = true
-	pid := p.pid
-	p.mu.Unlock()
-	terminateProcessGroup(pid)
+	p.cleanupErr = terminateProcessGroup(p.pid)
+	return p.cleanupErr
 }
 
-func (p *processTree) close() {
-	p.terminate()
+func (p *processTree) close() error {
+	return p.terminate()
 }
 
-func terminateProcessGroup(pid int) {
-	if err := syscall.Kill(-pid, syscall.SIGTERM); errors.Is(err, syscall.ESRCH) {
-		return
+func terminateProcessGroup(pid int) error {
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return fmt.Errorf("send SIGTERM to process group: %w", err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := syscall.Kill(-pid, 0); errors.Is(err, syscall.ESRCH) {
-			return
+		if err := syscall.Kill(-pid, 0); err != nil {
+			if errors.Is(err, syscall.ESRCH) {
+				return nil
+			}
+			return fmt.Errorf("check process group after SIGTERM: %w", err)
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("send SIGKILL to process group: %w", err)
+	}
+	return nil
 }

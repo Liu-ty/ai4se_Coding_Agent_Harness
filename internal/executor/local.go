@@ -3,6 +3,7 @@ package executor
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/config"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
@@ -21,14 +23,16 @@ import (
 var secretEnvName = regexp.MustCompile(`(?i)(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)`)
 
 type Local struct {
-	BaseEnv []string
-	Clock   func() time.Time
+	BaseEnv            []string
+	Clock              func() time.Time
+	processTreeFactory func(*exec.Cmd) (processTreeController, error)
+	waitCommand        func(*exec.Cmd) error
 }
 
 type processTreeController interface {
 	afterStart(*exec.Cmd) error
-	terminate()
-	close()
+	terminate() error
+	close() error
 }
 
 func NewLocal() *Local {
@@ -54,7 +58,11 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 	}
 	cmd.Env = sanitizedEnv(l.BaseEnv)
 
-	controller, err := prepareProcessTree(cmd)
+	processTreeFactory := l.processTreeFactory
+	if processTreeFactory == nil {
+		processTreeFactory = prepareProcessTree
+	}
+	controller, err := processTreeFactory(cmd)
 	if err != nil {
 		return domain.Observation{
 			Code:      CodeStartError,
@@ -63,11 +71,11 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 			Stderr:    err.Error(),
 		}, err
 	}
-	defer controller.close()
+	defer func() { _ = controller.close() }()
 	var interrupted atomic.Bool
 	cmd.Cancel = func() error {
 		interrupted.Store(true)
-		controller.terminate()
+		_ = controller.terminate()
 		return nil
 	}
 	cmd.WaitDelay = 2 * time.Second
@@ -106,31 +114,41 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 		_, _ = io.Copy(errBuf, stderr)
 	}()
 
-	waitErr := cmd.Wait()
-	controller.close()
+	waitCommand := l.waitCommand
+	if waitCommand == nil {
+		waitCommand = func(cmd *exec.Cmd) error { return cmd.Wait() }
+	}
+	waitErr := waitCommand(cmd)
+	cleanupErr := controller.close()
 	wg.Wait()
 
 	wasInterrupted := interrupted.Load()
 	code := CodeExit
-	if wasInterrupted && spec.Timeout > 0 && !errors.Is(ctx.Err(), context.Canceled) {
+	if wasInterrupted && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		code = CodeTimeout
-	} else if wasInterrupted && errors.Is(ctx.Err(), context.Canceled) {
+	} else if wasInterrupted && errors.Is(runCtx.Err(), context.Canceled) {
 		code = CodeCancelled
 	}
 
 	exitCode, executionErr := interpretWaitError(waitErr, wasInterrupted)
-	if executionErr != nil {
+	if cleanupErr != nil {
+		code = CodeCleanupError
+		cleanupFailure := fmt.Errorf("%w: %w", ErrProcessCleanup, cleanupErr)
+		executionErr = errors.Join(executionErr, cleanupFailure)
+	} else if executionErr != nil {
 		code = CodeExecutionError
 	}
+	diagnostic, diagnosticTruncated := executorDiagnostic(code, executionErr)
 
 	return domain.Observation{
 		Code:            code,
 		ExitCode:        exitCode,
 		Stdout:          outBuf.String(),
 		Stderr:          errBuf.String(),
-		OutputTruncated: outBuf.Truncated() || errBuf.Truncated(),
+		OutputTruncated: outBuf.Truncated() || errBuf.Truncated() || diagnosticTruncated,
 		StartedAt:       started,
 		EndedAt:         clock(),
+		Data:            diagnostic,
 	}, executionErr
 }
 
@@ -206,4 +224,31 @@ func interpretWaitError(waitErr error, interrupted bool) (*int, error) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("wait for command: %w", waitErr)
+}
+
+const maxExecutorDiagnosticBytes = 768
+
+func executorDiagnostic(code string, err error) (json.RawMessage, bool) {
+	if err == nil {
+		return nil, false
+	}
+	message := strings.ToValidUTF8(err.Error(), "\uFFFD")
+	truncated := len(message) > maxExecutorDiagnosticBytes
+	if truncated {
+		message = message[:maxExecutorDiagnosticBytes]
+		for len(message) > 0 && !utf8.ValidString(message) {
+			message = message[:len(message)-1]
+		}
+	}
+	data, marshalErr := json.Marshal(struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}{
+		Code:    code,
+		Message: message,
+	})
+	if marshalErr != nil {
+		return nil, truncated
+	}
+	return data, truncated
 }

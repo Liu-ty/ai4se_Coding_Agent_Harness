@@ -1,6 +1,7 @@
 package feedback_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/executor"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/feedback"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/validation"
 )
 
 func TestFingerprintIgnoresANSIPathsTimingAndAddresses(t *testing.T) {
@@ -60,6 +62,7 @@ func TestProcessClassifiesRequiredCategories(t *testing.T) {
 		{name: "stale patch", in: input("patch", "STALE_PATCH", "", 0), want: "STALE_PATCH"},
 		{name: "missing executable", in: input("go-test", executor.CodeStartError, "executable file not found in PATH", 0), want: "MISSING_EXECUTABLE"},
 		{name: "execution failure", in: input("go-test", executor.CodeExecutionError, "wait for command failed", 0), want: "ENVIRONMENT_FAILURE"},
+		{name: "cleanup failure", in: input("go-test", executor.CodeCleanupError, "process cleanup failed", 0), want: "INCOMPLETE_PROCESS_CLEANUP"},
 		{name: "timeout", in: input("go-test", executor.CodeTimeout, "", 0), want: "TIMEOUT"},
 		{name: "cancellation", in: input("go-test", executor.CodeCancelled, "", 0), want: "CANCELLED"},
 		{name: "test failure", in: input("unit", executor.CodeExit, "--- FAIL: TestThing\nexpected true", 1), want: "TEST_FAILURE"},
@@ -177,6 +180,49 @@ func TestProcessDoesNotExposeInvalidClassifierPattern(t *testing.T) {
 		if strings.Contains(evidence.Message, canary) {
 			t.Fatalf("classifier pattern leaked in evidence: %#v", got.Evidence)
 		}
+	}
+}
+
+func TestExecutionDiagnosticSurvivesValidationAndFeedback(t *testing.T) {
+	const secret = "WAIT_ERROR_SECRET_CANARY"
+	obs := domain.Observation{
+		Code: executor.CodeExecutionError,
+		Data: []byte(`{"execution_error":"wait for command: device failure ` + secret + `"}`),
+	}
+	ex := &executor.Mock{Results: map[string][]domain.Observation{"unit": {obs}}}
+	stage := config.CommandSpec{ID: "unit", Required: true}
+
+	stageResult := validation.New([]config.CommandSpec{stage}, ex).RunStage(context.Background(), 0)
+	got := feedback.Pipeline{}.Process(feedback.Input{
+		StageID:     stage.ID,
+		Observation: stageResult.Observation,
+		Secrets:     []string{secret},
+	})
+
+	if stageResult.Passed {
+		t.Fatal("execution error unexpectedly passed validation")
+	}
+	if got.Category != "ENVIRONMENT_FAILURE" {
+		t.Fatalf("category = %q, want ENVIRONMENT_FAILURE", got.Category)
+	}
+	combined := got.Summary
+	for _, evidence := range got.Evidence {
+		combined += "\n" + evidence.Message
+	}
+	if !strings.Contains(combined, "device failure") || strings.Contains(combined, secret) {
+		t.Fatalf("diagnostic was lost or leaked: %#v", got)
+	}
+}
+
+func TestCleanupFailureIsTerminal(t *testing.T) {
+	got := feedback.Pipeline{}.Process(input(
+		"unit",
+		executor.CodeCleanupError,
+		"process cleanup failed",
+		0,
+	))
+	if got.Category != "INCOMPLETE_PROCESS_CLEANUP" || got.Retryable {
+		t.Fatalf("feedback = %#v, want terminal cleanup failure", got)
 	}
 }
 

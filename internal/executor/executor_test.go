@@ -158,6 +158,24 @@ func TestExecutorContextCancellationCleansUpProcessTree(t *testing.T) {
 	assertHeartbeatStopped(t, heartbeat)
 }
 
+func TestExecutorExternalDeadlineIsTimeout(t *testing.T) {
+	dir := t.TempDir()
+	heartbeat := filepath.Join(dir, "heartbeat")
+	spec := helperSpec(t, "spawn-child", heartbeat)
+	spec.Timeout = 0
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	got, err := executor.NewLocal().Run(ctx, spec)
+	if err != nil {
+		t.Fatalf("run after external deadline: %v", err)
+	}
+	if got.Code != executor.CodeTimeout {
+		t.Fatalf("code = %q, want %q; observation=%#v", got.Code, executor.CodeTimeout, got)
+	}
+	assertHeartbeatStopped(t, heartbeat)
+}
+
 func TestExecutorNormalExitCleansUpProcessTree(t *testing.T) {
 	dir := t.TempDir()
 	heartbeat := filepath.Join(dir, "heartbeat")
