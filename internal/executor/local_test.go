@@ -91,6 +91,7 @@ func TestLocalAfterStartFailureDoesNotWaitForInheritedPipes(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "child.pid")
 	t.Cleanup(func() { killMarkedProcess(marker) })
 	afterStartErr := errors.New("assign process tree failed")
+	cleanupErr := errors.New("cleanup after assign failed")
 	local := &Local{
 		processTreeFactory: func(*exec.Cmd) (processTreeController, error) {
 			return &stubProcessTree{
@@ -98,7 +99,7 @@ func TestLocalAfterStartFailureDoesNotWaitForInheritedPipes(t *testing.T) {
 					waitForMarker(t, marker)
 					return afterStartErr
 				},
-				cleanupErr: errors.New("cleanup after assign failed"),
+				cleanupErr: cleanupErr,
 			}, nil
 		},
 	}
@@ -108,6 +109,9 @@ func TestLocalAfterStartFailureDoesNotWaitForInheritedPipes(t *testing.T) {
 
 	if !errors.Is(err, afterStartErr) {
 		t.Fatalf("error = %v, want %v", err, afterStartErr)
+	}
+	if !errors.Is(err, ErrProcessCleanup) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("error = %v, want cleanup errors %v and %v", err, ErrProcessCleanup, cleanupErr)
 	}
 	if elapsed := time.Since(started); elapsed >= 3500*time.Millisecond {
 		t.Fatalf("after-start failure waited %v for an inherited pipe", elapsed)

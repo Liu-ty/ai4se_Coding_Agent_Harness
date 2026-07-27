@@ -90,14 +90,14 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 	if err != nil {
 		return startErrorObservation(started, clock, err), err
 	}
-	defer stdoutReader.Close()
-	defer stdoutWriter.Close()
+	defer func() { _ = stdoutReader.Close() }()
+	defer func() { _ = stdoutWriter.Close() }()
 	stderrReader, stderrWriter, err := os.Pipe()
 	if err != nil {
 		return startErrorObservation(started, clock, err), err
 	}
-	defer stderrReader.Close()
-	defer stderrWriter.Close()
+	defer func() { _ = stderrReader.Close() }()
+	defer func() { _ = stderrWriter.Close() }()
 	cmd.Stdout = stdoutWriter
 	cmd.Stderr = stderrWriter
 
@@ -123,7 +123,9 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 		_ = stderrReader.Close()
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		_ = controller.close()
+		if closeErr := controller.close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("%w: %w", ErrProcessCleanup, closeErr))
+		}
 		wg.Wait()
 		return startErrorObservation(started, clock, err), err
 	}
