@@ -374,3 +374,11 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Red evidence:** Added executor tests before production code. With workspace-local Go caches, `go test ./internal/executor -v` failed as expected because `internal/executor` had no non-test Go files. A first invocation in the original worktree was blocked by the host Go build-cache ACL before compilation.
 - **Implementation:** Added the `executor.Executor` contract, `Local` process runner, testable `Mock`, secret-filtered explicit environment inheritance, independent bounded stdout/stderr draining, timeout/cancellation observation codes, Linux process-group cleanup, Windows Job Object cleanup, and no-shell test helper coverage.
 - **Green evidence:** In `F:\codes\ai4se-executor-feedback`, `go test ./internal/executor -v` passed stream separation, exit code capture, output bounds, secret environment filtering, timeout cleanup, and context-cancellation cleanup on Windows.
+
+## 2026-07-27 - Task 9: Ordered Validation Pipeline
+
+- **Task:** Task 9 implementation in worktree `F:\codes\ai4se-executor-feedback` on branch `codex/executor-feedback`.
+- **Skills:** `superpowers:executing-plans`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added validation pipeline tests before production code. With workspace-local Go caches, `go test ./internal/validation -v` failed as expected because `internal/validation` had no non-test Go files.
+- **Implementation:** Added stable `StageResult` and `Result` types plus a `Pipeline` that runs ordered stages through `executor.Executor`, treats pass as `EXIT` with exit code zero, stops on required failures, records optional failures without blocking later required stages, and supports required-only final validation reruns.
+- **Green evidence:** In `F:\codes\ai4se-executor-feedback`, `go test ./internal/validation -v` passed ordered fail-fast, final required rerun, optional failure continuation, missing-exit failure, and context-cancellation coverage.
