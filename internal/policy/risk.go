@@ -2,7 +2,7 @@ package policy
 
 import (
 	"encoding/json"
-	"path/filepath"
+	pathpkg "path"
 	"strings"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
@@ -33,12 +33,15 @@ func classifyRisk(ctx Context, action domain.Action) (Risk, string, string) {
 	}
 
 	var args any
-	if len(action.Args) > 0 && json.Unmarshal(action.Args, &args) != nil {
+	if len(action.Args) == 0 || json.Unmarshal(action.Args, &args) != nil {
 		return RiskHardDenied, "INVALID_ACTION_ARGS", "action arguments must be valid JSON"
 	}
 	facts := inspectArgs(args)
 	if facts.hardDenied {
 		return RiskHardDenied, facts.code, facts.message
+	}
+	if risk, code, message := validateCanonicalAction(ctx, action.Kind, action.Args, &facts); risk != RiskNormal {
+		return risk, code, message
 	}
 	if !isMutation(action.Kind) {
 		return RiskNormal, "", ""
@@ -48,6 +51,91 @@ func classifyRisk(ctx Context, action domain.Action) (Risk, string, string) {
 	}
 	if ctx.Dirty {
 		return RiskGuarded, "DIRTY_WORKTREE", "mutation targets a dirty worktree"
+	}
+	return RiskNormal, "", ""
+}
+
+func validateCanonicalAction(ctx Context, kind string, raw json.RawMessage, facts *actionFacts) (Risk, string, string) {
+	switch kind {
+	case "run_check":
+		return validateRunCheck(ctx, raw)
+	case "create_file":
+		return validateCreateFile(raw, facts)
+	case "apply_patch":
+		return validatePatch(raw, facts)
+	default:
+		return RiskNormal, "", ""
+	}
+}
+
+func validateRunCheck(ctx Context, raw json.RawMessage) (Risk, string, string) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || len(fields) != 1 || fields["id"] == nil {
+		return RiskHardDenied, "INVALID_CHECK_SCHEMA", "run_check requires one configured check identifier"
+	}
+	var id string
+	if json.Unmarshal(fields["id"], &id) != nil || id == "" {
+		return RiskHardDenied, "INVALID_CHECK_SCHEMA", "run_check requires one configured check identifier"
+	}
+	for _, configured := range ctx.ConfiguredChecks {
+		if id == configured {
+			return RiskNormal, "", ""
+		}
+	}
+	return RiskHardDenied, "UNCONFIGURED_CHECK", "run_check identifier is not configured"
+}
+
+func validateCreateFile(raw json.RawMessage, facts *actionFacts) (Risk, string, string) {
+	var args struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(raw, &args) != nil || args.Path == "" {
+		return RiskHardDenied, "INVALID_CREATE_SCHEMA", "create_file requires a path and UTF-8 content"
+	}
+	inspectPath(args.Path, facts)
+	if facts.hardDenied {
+		return RiskHardDenied, facts.code, facts.message
+	}
+	if len(args.Content) > maxFileBytes {
+		facts.guarded, facts.code, facts.message = true, "FILE_TOO_LARGE", "mutation writes too many bytes"
+	}
+	return RiskNormal, "", ""
+}
+
+func validatePatch(raw json.RawMessage, facts *actionFacts) (Risk, string, string) {
+	var args struct {
+		Patch string `json:"patch"`
+	}
+	if json.Unmarshal(raw, &args) != nil || args.Patch == "" {
+		return RiskHardDenied, "INVALID_PATCH_SCHEMA", "apply_patch requires a patch payload"
+	}
+
+	files := make(map[string]struct{})
+	changedLines := 0
+	for _, line := range strings.Split(args.Patch, "\n") {
+		if strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- ") {
+			path := strings.TrimSpace(line[4:])
+			path = strings.TrimPrefix(path, "a/")
+			path = strings.TrimPrefix(path, "b/")
+			if path != "/dev/null" {
+				inspectPath(path, facts)
+				files[path] = struct{}{}
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+			changedLines++
+		}
+	}
+	if facts.hardDenied {
+		return RiskHardDenied, facts.code, facts.message
+	}
+	if len(files) > maxFiles {
+		facts.guarded, facts.code, facts.message = true, "TOO_MANY_FILES", "mutation affects too many files"
+	}
+	if changedLines > maxChangedLines {
+		facts.guarded, facts.code, facts.message = true, "TOO_MANY_CHANGED_LINES", "mutation changes too many lines"
 	}
 	return RiskNormal, "", ""
 }
@@ -83,25 +171,12 @@ func inspectValue(value any, key string, facts *actionFacts) {
 			inspectValue(nested, lower, facts)
 		}
 	case []any:
-		if (key == "paths" || key == "files") && len(v) > maxFiles {
-			facts.guarded, facts.code, facts.message = true, "TOO_MANY_FILES", "mutation affects too many files"
-		}
 		for _, nested := range v {
 			inspectValue(nested, key, facts)
 		}
 	case string:
 		if isPathKey(key) {
 			inspectPath(v, facts)
-		}
-	case float64:
-		if (key == "files" || key == "file_count") && v > maxFiles {
-			facts.guarded, facts.code, facts.message = true, "TOO_MANY_FILES", "mutation affects too many files"
-		}
-		if (key == "changed_lines" || key == "line_count") && v > maxChangedLines {
-			facts.guarded, facts.code, facts.message = true, "TOO_MANY_CHANGED_LINES", "mutation changes too many lines"
-		}
-		if (key == "bytes" || key == "size_bytes" || key == "file_bytes") && v > maxFileBytes {
-			facts.guarded, facts.code, facts.message = true, "FILE_TOO_LARGE", "mutation writes too many bytes"
 		}
 	}
 }
@@ -112,7 +187,7 @@ func truthyHardDeny(key string, value any) bool {
 		return false
 	}
 	return key == "repository_escape" || key == "symlink_escape" || key == "binary" ||
-		key == "credential_access" || key == "network" || key == "raw_shell"
+		key == "credential_access" || key == "network" || key == "raw_shell" || key == "key_endpoint_mismatch"
 }
 
 func truthyGuard(key string, value any) bool {
@@ -124,15 +199,19 @@ func isPathKey(key string) bool {
 	return key == "path" || key == "paths" || key == "file" || key == "files"
 }
 
-func inspectPath(path string, facts *actionFacts) {
-	clean := strings.ReplaceAll(path, "\\", "/")
-	lower := strings.ToLower(clean)
-	if filepath.IsAbs(path) || strings.HasPrefix(clean, "/") || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") ||
-		(len(clean) >= 2 && clean[1] == ':') {
+func inspectPath(rawPath string, facts *actionFacts) {
+	clean := strings.ReplaceAll(rawPath, "\\", "/")
+	if strings.HasPrefix(clean, "/") || (len(clean) >= 2 && clean[1] == ':') {
 		facts.hardDenied, facts.code, facts.message = true, "REPOSITORY_ESCAPE", "action path escapes the repository"
 		return
 	}
-	if strings.HasPrefix(lower, ".git/") || lower == ".git" {
+	clean = pathpkg.Clean(clean)
+	lower := strings.ToLower(clean)
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		facts.hardDenied, facts.code, facts.message = true, "REPOSITORY_ESCAPE", "action path escapes the repository"
+		return
+	}
+	if lower == ".git" || strings.HasPrefix(lower, ".git/") {
 		facts.hardDenied, facts.code, facts.message = true, "GIT_INTERNALS", "action targets repository internals"
 		return
 	}

@@ -2,6 +2,8 @@ package policy_test
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
@@ -9,7 +11,7 @@ import (
 )
 
 func TestPatchProfileMatrix(t *testing.T) {
-	action := domain.Action{Kind: "apply_patch", Args: json.RawMessage(`{"path":"a.go"}`)}
+	action := domain.Action{Kind: "apply_patch", Args: json.RawMessage(`{"patch":"--- a/a.go\n+++ b/a.go\n@@ -0,0 +1 @@\n+package a\n"}`)}
 	cases := []struct {
 		profile domain.PermissionProfile
 		want    policy.Verdict
@@ -48,8 +50,72 @@ func TestHardDenialsPrecedeProfileMappings(t *testing.T) {
 	}
 }
 
+func TestHardDeniesGitInternalAlternateSpellings(t *testing.T) {
+	for _, path := range []string{"./.git/config", "dir/../.git/config", `.\\.git\\config`} {
+		t.Run(path, func(t *testing.T) {
+			action := domain.Action{Kind: "read_file", Args: json.RawMessage(`{"path":` + strconv.Quote(path) + `}`)}
+			got := policy.NewEngine().Evaluate(policy.Context{Profile: domain.ProfileWorkspaceAuto}, action)
+			if got.Verdict != policy.Deny || got.Risk != policy.RiskHardDenied || got.Code != "GIT_INTERNALS" {
+				t.Fatalf("got %#v", got)
+			}
+		})
+	}
+}
+
+func TestRunCheckRequiresConfiguredIdentifierOnly(t *testing.T) {
+	engine := policy.NewEngine()
+	ctx := policy.Context{Profile: domain.ProfileWorkspaceAuto, ConfiguredChecks: []string{"unit"}}
+	for _, args := range []json.RawMessage{
+		json.RawMessage(`{"command":"curl https://example.test"}`),
+		json.RawMessage(`{"id":"unit","command":"curl https://example.test"}`),
+		json.RawMessage(`{"id":"unknown"}`),
+	} {
+		got := engine.Evaluate(ctx, domain.Action{Kind: "run_check", Args: args})
+		if got.Verdict != policy.Deny || got.Risk != policy.RiskHardDenied {
+			t.Fatalf("args %s: got %#v", args, got)
+		}
+	}
+
+	got := engine.Evaluate(ctx, domain.Action{Kind: "run_check", Args: json.RawMessage(`{"id":"unit"}`)})
+	if got.Verdict != policy.Allow || got.Risk != policy.RiskNormal {
+		t.Fatalf("configured check: got %#v", got)
+	}
+}
+
+func TestHardDeniesKeyEndpointMismatch(t *testing.T) {
+	action := domain.Action{Kind: "read_file", Args: json.RawMessage(`{"key_endpoint_mismatch":true}`)}
+	got := policy.NewEngine().Evaluate(policy.Context{Profile: domain.ProfileWorkspaceAuto}, action)
+	if got.Verdict != policy.Deny || got.Risk != policy.RiskHardDenied {
+		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestMutationLimitsAreDerivedFromCanonicalPayload(t *testing.T) {
+	largeContent, err := json.Marshal(map[string]string{"path": "a.go", "content": strings.Repeat("x", 1<<20+1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	largePatch, err := json.Marshal(map[string]string{"patch": "--- a/a.go\n+++ b/a.go\n" + strings.Repeat("+change\n", 501)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []domain.Action{
+		{Kind: "create_file", Args: largeContent},
+		{Kind: "apply_patch", Args: largePatch},
+	} {
+		got := policy.NewEngine().Evaluate(policy.Context{Profile: domain.ProfileWorkspaceAuto}, action)
+		if got.Verdict != policy.RequireApproval || got.Risk != policy.RiskGuarded {
+			t.Fatalf("%s: got %#v", action.Kind, got)
+		}
+	}
+}
+
 func TestWorkspaceAutoRequiresApprovalForGuardedMutation(t *testing.T) {
-	action := domain.Action{Kind: "apply_patch", Args: json.RawMessage(`{"path":"vendor/generated.go","changed_lines":501}`)}
+	args, err := json.Marshal(map[string]string{"patch": "--- a/vendor/generated.go\n+++ b/vendor/generated.go\n" + strings.Repeat("+change\n", 501)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := domain.Action{Kind: "apply_patch", Args: args}
 	got := policy.NewEngine().Evaluate(policy.Context{Profile: domain.ProfileWorkspaceAuto}, action)
 	if got.Verdict != policy.RequireApproval || got.Risk != policy.RiskGuarded {
 		t.Fatalf("got %#v", got)

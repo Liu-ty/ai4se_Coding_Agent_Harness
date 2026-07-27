@@ -14,11 +14,12 @@ const (
 )
 
 type Context struct {
-	RunID     domain.RunID
-	Profile   domain.PermissionProfile
-	RepoRoot  string
-	Dirty     bool
-	Baselines map[string]string
+	RunID            domain.RunID
+	Profile          domain.PermissionProfile
+	RepoRoot         string
+	Dirty            bool
+	Baselines        map[string]string
+	ConfiguredChecks []string
 }
 
 type Decision struct {
