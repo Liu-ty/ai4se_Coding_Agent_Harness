@@ -317,3 +317,12 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** Controller-side focused policy tests, full `go test ./... -count=1` using workspace-local Go caches, and `git diff --check` passed after the final fix.
 - **Human intervention:** None beyond approval for Git branch, staging, and commit operations blocked by the sandbox's `.git` write restrictions.
 - **Lesson:** Policy code must validate canonical action payload shape itself; treating caller-supplied risk metadata as trusted creates the exact bypasses the policy layer is meant to prevent.
+
+## 2026-07-27 - Task 6: Canonical Workspace and Read-Only Tools
+
+- **Task:** Task 6 implementation.
+- **Skills:** `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added workspace and tools tests before production code. With workspace-local Go caches, `go test ./internal/workspace ./internal/tools -v` failed as expected because both packages had no non-test Go files.
+- **Implementation:** Added canonical workspace resolution with repository-escape, `.git`, protected-secret, and symlink-escape denial; read-only list/search/read tools with bounded deterministic results, UTF-8/binary checks, truncation, and SHA-256 content hashes; dispatch registry; Git baseline reads; and a temporary committed-repository test helper limited to test code.
+- **Green evidence:** The focused workspace/tools suite passed after the minimum implementation. Full verification and commit status are recorded in the Task 6 report.
+- **Self-review:** Traversal skips Git internals and symlink entries, search reads only enumerated canonical workspace files, and production tool registration exposes no Git write, raw-shell, network, credential, patch, or create action.
