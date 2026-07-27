@@ -297,3 +297,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Review status:** The five original CodeRabbit inline threads were resolved by CodeRabbit after commit `c43215d`. The follow-up CodeRabbit run for the last seven changed files was not performed because the PR review limit was reached; the bot reported the next review window would reopen later rather than posting new actionable findings.
 - **Workspace sync:** Fetched `origin/main` and `origin/config-store-budget`, fast-forwarded local `main` to `origin/main`, and fast-forwarded the `F:\codes\ai4se-cold-start` `config-store-budget` worktree from `b391b92` to `c43215d`.
 - **Next step:** Task 5 should start from updated `main`, not from the already-merged `config-store-budget` branch.
+
+## 2026-07-27 - Task 5: Policy Engine, Permission Profiles, and Exact Approvals
+
+- **Task:** Task 5 implementation only.
+- **Skills:** `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added `internal/policy/policy_test.go` before production files. With workspace-local Go caches, `go test ./internal/policy -v` failed as expected because `internal/policy` had no non-test Go files. A first invocation was blocked before compilation by the host Go build-cache permissions and was rerun with the workspace cache.
+- **Green evidence:** `go test ./internal/policy -v` passed the profile matrix, hard denials, guarded mutation, dirty-worktree, SHA-256 digest binding, one-use approval, and repository-override tests. The common pre-Task-16 gate `go test ./... -count=1` and `git diff --check` passed.
+- **Implementation:** Added a closed course-delivery action registry; risk-first hard denials for unknown actions, escape, `.git`, credential, binary, and unsafe facts; guarded normal limits and protected paths; review/supervised/workspace-auto mappings; deterministic sorted-baseline SHA-256 approval digests; and a mutex-protected, one-use `ApprovalStore` that also supports its zero value.
+- **Self-review:** Confirmed policy has no repository configuration input that could loosen user-level decisions, approval grants bind run/profile/action/baselines, denied decisions contain no action arguments, and Task 6 workspace/tool execution was not started.
+- **Concern:** The full Go gate initially timed out during dependency download to the workspace-local cache. It completed successfully after approved network/cache access; no dependencies were changed. The requested `git add`/`git commit` was blocked because the sandbox denied creation of `.git/index.lock`; the working tree remains cleanly modified for the controller to stage and commit.
