@@ -336,3 +336,12 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** Controller-side focused `go test ./internal/workspace ./internal/tools -v`, full `go test ./... -count=1`, `gofmt -l internal`, and `git diff --check` passed after the final fix. Windows symlink and chmod traversal tests skipped only for host privilege/ACL limitations.
 - **Human intervention:** None beyond approval for Git staging and commit operations blocked by sandbox `.git` write restrictions.
 - **Lesson:** Bounded filesystem traversal still needs a clear ordering invariant; stopping early before proving the sorted prefix trades one resource bug for a correctness bug.
+
+## 2026-07-27 - Task 7: Safe Patch and File-Creation Tools
+
+- **Task:** Task 7 implementation.
+- **Skills:** `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added patch/create tests before production code. The requested focused command first hit the host Go build-cache ACL; with workspace-local Go caches it then failed as expected on missing `NewPatchTool`, `PatchLimits`, `NewCreateTool`, and Task 7 sentinels.
+- **Implementation:** Added bounded unified-diff header/hunk validation, workspace-resolved target checks, stale SHA-256 baseline checks before Git, all-or-nothing `git apply` with an atomicity hash guard, deterministic changed-path output and binary-diff digest. Added exclusive create/write/fsync/close behavior with cleanup on failure and no overwrite.
+- **Green evidence:** `go test ./internal/tools -run 'TestPatch|TestCreate' -v` passed clean apply, conflict, stale baseline, injected atomicity breach, unsafe patch forms, limits, protected paths, and no-overwrite coverage. Full gate and commit status are recorded in the Task 7 report.
+- **Self-review:** No executor or validation work was added; production mutation remains limited to the Task 7 tool implementations and uses no reset, clean, revert, shell-action, network, or credential access path.

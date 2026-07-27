@@ -9,12 +9,19 @@ import (
 )
 
 var (
-	ErrUnknownTool   = errors.New("unknown tool")
-	ErrDuplicateTool = errors.New("duplicate tool")
-	ErrInvalidArgs   = errors.New("invalid tool arguments")
-	ErrBinaryFile    = errors.New("binary file")
-	ErrInvalidRegex  = errors.New("invalid regular expression")
-	ErrProtectedPath = errors.New("protected path")
+	ErrUnknownTool          = errors.New("unknown tool")
+	ErrDuplicateTool        = errors.New("duplicate tool")
+	ErrInvalidArgs          = errors.New("invalid tool arguments")
+	ErrBinaryFile           = errors.New("binary file")
+	ErrInvalidRegex         = errors.New("invalid regular expression")
+	ErrProtectedPath        = errors.New("protected path")
+	ErrInvalidPatch         = errors.New("invalid patch")
+	ErrPatchLimit           = errors.New("patch limit exceeded")
+	ErrPatchConflict        = errors.New("patch does not apply")
+	ErrStaleBaseline        = errors.New("stale baseline")
+	ErrPatchAtomicityBreach = errors.New("PATCH_ATOMICITY_BREACH")
+	ErrAlreadyExists        = errors.New("target already exists")
+	ErrCreateLimit          = errors.New("create file limit exceeded")
 )
 
 type Registry struct {

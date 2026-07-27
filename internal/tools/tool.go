@@ -1,4 +1,4 @@
-// Package tools contains bounded, read-only repository observation tools.
+// Package tools contains bounded repository observation and mutation tools.
 package tools
 
 import (
