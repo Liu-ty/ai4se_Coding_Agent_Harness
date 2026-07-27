@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Foundation PR #1 is merged at `6cad5d1`, and the `config-store-budget` PR #2 is merged into `main` at `712f257`. Tasks 1-4 are complete on `main`; Task 5 remains the next implementation task.
+**Status:** Foundation PR #1 is merged at `6cad5d1`, and the `config-store-budget` PR #2 is merged into `main` at `712f257`. Tasks 1-4 are complete on `main`; Tasks 5-7 are complete on the pushed `policy-tools` PR #3 branch through CodeRabbit follow-up `ca12a83`.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -649,7 +649,7 @@ git commit -m "feat: add selectable policy profiles and approvals"
 
 ---
 
-### Task 6: Canonical Workspace and Read-Only Tools - complete (`39e024e`, review fixes `e6c3c47`, `1c6920a`)
+### Task 6: Canonical Workspace and Read-Only Tools - complete (`39e024e`, review fixes `e6c3c47`, `1c6920a`, PR review fix `ca12a83`)
 
 **Files:**
 - Create: `internal/workspace/path.go`
@@ -660,6 +660,7 @@ git commit -m "feat: add selectable policy profiles and approvals"
 - Create: `internal/tools/search.go`
 - Test: `internal/tools/read_test.go`
 - Test: `internal/workspace/path_test.go`
+- Test: `internal/workspace/git_test.go`
 - Create: `internal/testutil/testrepo/repo.go`
 - Modify: `AGENT_LOG.md`
 
@@ -688,7 +689,7 @@ Expected: FAIL because packages are missing.
 
 - [x] **Step 3: Implement canonical path resolution**
 
-Resolve the root with `filepath.EvalSymlinks`, join/clean the relative path, resolve the nearest existing parent for new paths, and compare with `filepath.Rel`. Reject absolute inputs, `..` escape, `.git`, protected secret globs, and symlinks whose resolved target leaves the root.
+Resolve the root with `filepath.EvalSymlinks`, join/clean the relative path, resolve the nearest existing parent for new paths, and compare with `filepath.Rel`. Reject absolute inputs, `..` escape, `.git` at any path depth, protected secret globs before and after symlink resolution, and symlinks whose resolved target leaves the root. Run Git baseline commands with caller context so cancellation cannot leave the harness waiting indefinitely on Git.
 
 - [x] **Step 4: Implement tool contract and registry**
 
@@ -707,7 +708,7 @@ Implement `testrepo.New(t, files)` under `internal/testutil/testrepo`: create th
 - [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/workspace ./internal/tools -v`  
-Expected: PASS for escape, symlink, `.git`, protected files, binary, stable ordering, result limits, invalid regex, hash, and truncation.
+Expected: PASS for escape, symlink, nested `.git`, protected files before and after symlink resolution, context-cancelled Git baseline, binary, stable ordering, result limits, invalid regex, hash, and truncation.
 
 ```powershell
 git add internal/workspace internal/tools AGENT_LOG.md
@@ -716,7 +717,7 @@ git commit -m "feat: add bounded repository read tools"
 
 ---
 
-### Task 7: Safe Patch and File-Creation Tools - complete (`c4ffddd`, review fix `bbffdeb`)
+### Task 7: Safe Patch and File-Creation Tools - complete (`c4ffddd`, review fixes `bbffdeb`, `ca12a83`)
 
 **Files:**
 - Create: `internal/tools/patch.go`
@@ -755,18 +756,18 @@ Expected: FAIL because patch/create tools do not exist.
 
 - [x] **Step 3: Implement deterministic patch-header parsing and validation**
 
-Parse only unified-diff file headers and hunks. Reject rename, delete, binary patch, absolute paths, `/dev/null` for existing-file patching, duplicate paths, more than five files, and more than 500 added/deleted lines. Resolve every path through `workspace.Resolve` and compare every supplied baseline hash before invoking Git.
+Parse only unified-diff file headers and hunks. Reject rename, mode-change, delete, binary patch, absolute paths, `/dev/null` for existing-file patching, duplicate paths, more than five files, and more than 500 added/deleted lines. Resolve every path through `workspace.Resolve` and compare every supplied baseline hash before invoking Git.
 
 - [x] **Step 4: Implement all-or-nothing Git apply and create**
 
-Run `git apply --check --whitespace=nowarn -` with patch bytes on stdin; only on success run `git apply --whitespace=nowarn -` without `--reject`. Recheck all baselines immediately before the real apply. Git’s non-reject path must leave all targets unchanged on failure; verify this against captured hashes and escalate any unexpected mutation as `PATCH_ATOMICITY_BREACH` without running reset/clean. Return a sorted path list plus SHA-256 of the resulting `git diff --binary` output.
+Run `git apply --check --whitespace=nowarn -` with patch bytes on stdin; only on success run `git apply --whitespace=nowarn -` without `--reject`. Recheck all baselines immediately before the real apply. Git’s non-reject path must leave all targets unchanged on failure; verify this against captured hashes and escalate any unexpected mutation as `PATCH_ATOMICITY_BREACH` without running reset/clean. If the post-apply `git diff --binary` capture fails, attempt a reverse apply of the same patch; return `PATCH_ATOMICITY_BREACH` if mutation remains or rollback fails, otherwise return a classified no-mutation patch conflict. Return a sorted path list plus SHA-256 of the resulting `git diff --binary` output.
 
 `create_file` opens the target directly with `O_CREATE|O_EXCL`, writes, fsyncs, and closes after policy and size checks. On write/sync failure it removes the newly created path; it never overwrites an existing path.
 
 - [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/tools -run 'TestPatch|TestCreate' -v`  
-Expected: PASS for clean apply, conflict, stale baseline, atomic injected failure, delete/rename/binary rejection, protected path, limits, and no overwrite.
+Expected: PASS for clean apply, conflict, stale baseline, atomic injected failure, diff-failure rollback/classification, delete/rename/mode-change/binary rejection, protected path, limits, and no overwrite.
 
 ```powershell
 git add internal/tools AGENT_LOG.md

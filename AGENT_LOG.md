@@ -355,3 +355,39 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** Controller-side `go test ./internal/tools -run 'TestPatch|TestCreate' -v`, full `go test ./... -count=1`, `gofmt -l internal`, and `git diff --check` passed after the final fix.
 - **Human intervention:** None beyond approval for Git staging and commit operations blocked by sandbox `.git` write restrictions.
 - **Lesson:** Unified diff parsers must honor hunk line counts before interpreting header-looking text; patch payload can contain strings that look like file headers.
+
+## 2026-07-27 - PR #3 CodeRabbit Follow-up and Workspace Sync
+
+- **Task:** PR-3-CODERABBIT-FOLLOWUP-001.
+- **Skills:** `github:gh-address-comments`, `superpowers:receiving-code-review`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Review intake:** CodeRabbit reported five actionable unresolved PR #3 threads: mode-change patch headers were not rejected, a post-apply `git diff --binary` failure could return an unclassified error after mutation, `GitBaseline` could wait forever on Git because it lacked context, nested `.git` directories could be traversed, and `workspace.Resolve` did not re-check protected canonical targets after symlink resolution.
+- **Red evidence:** Regression tests were added before production fixes. With approved Go build-cache access, `go test ./internal/tools ./internal/workspace` failed on the new mode-change rejection, diff-failure rollback/classification, nested `.git` traversal, and the new `GitBaseline(context.Context, root)` contract.
+- **Implementation:** Commit `ca12a83` rejects Git mode-change patch headers, restores or classifies mutations when diff capture fails after apply, runs Git baseline commands through `exec.CommandContext`, blocks `.git` at any path depth, skips nested Git directories during list/search traversal, and rejects symlinks whose canonical targets resolve to protected paths inside the workspace.
+- **Verification:** `go test ./internal/tools ./internal/workspace` passed after the fix, followed by full `go test ./...` with exit code 0. Before this documentation/workspace commit, `go test ./...` and `git diff --check` also exited 0.
+- **GitHub writes:** Commit `ca12a83` was pushed to `origin/codex/policy-tools` for PR #3. This documentation/workspace follow-up records the pushed review closure in `PLAN.md` and this log.
+- **Workspace status:** After the CodeRabbit fix push, `git status --short --branch` reported `## codex/policy-tools...origin/codex/policy-tools`; no untracked or modified files remained before this documentation synchronization.
+
+## 2026-07-27 - Task 8: Cross-Platform Restricted Process Executor
+
+- **Task:** Task 8 implementation in worktree `F:\codes\ai4se-executor-feedback` on branch `codex/executor-feedback`.
+- **Skills:** `superpowers:using-superpowers`, `superpowers:executing-plans`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added executor tests before production code. With workspace-local Go caches, `go test ./internal/executor -v` failed as expected because `internal/executor` had no non-test Go files. A first invocation in the original worktree was blocked by the host Go build-cache ACL before compilation.
+- **Implementation:** Added the `executor.Executor` contract, `Local` process runner, testable `Mock`, secret-filtered explicit environment inheritance, independent bounded stdout/stderr draining, timeout/cancellation observation codes, Linux process-group cleanup, Windows Job Object cleanup, and no-shell test helper coverage.
+- **Green evidence:** In `F:\codes\ai4se-executor-feedback`, `go test ./internal/executor -v` passed stream separation, exit code capture, output bounds, secret environment filtering, timeout cleanup, and context-cancellation cleanup on Windows.
+
+## 2026-07-27 - Task 9: Ordered Validation Pipeline
+
+- **Task:** Task 9 implementation in worktree `F:\codes\ai4se-executor-feedback` on branch `codex/executor-feedback`.
+- **Skills:** `superpowers:executing-plans`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added validation pipeline tests before production code. With workspace-local Go caches, `go test ./internal/validation -v` failed as expected because `internal/validation` had no non-test Go files.
+- **Implementation:** Added stable `StageResult` and `Result` types plus a `Pipeline` that runs ordered stages through `executor.Executor`, treats pass as `EXIT` with exit code zero, stops on required failures, records optional failures without blocking later required stages, and supports required-only final validation reruns.
+- **Green evidence:** In `F:\codes\ai4se-executor-feedback`, `go test ./internal/validation -v` passed ordered fail-fast, final required rerun, optional failure continuation, missing-exit failure, and context-cancellation coverage.
+
+## 2026-07-27 - Task 10: Deterministic Feedback Pipeline
+
+- **Task:** Task 10 implementation in worktree `F:\codes\ai4se-executor-feedback` on branch `codex/executor-feedback`.
+- **Skills:** `superpowers:executing-plans`, `superpowers:test-driven-development`, `superpowers:systematic-debugging`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added feedback tests before production code. With workspace-local Go caches, `go test ./internal/feedback -v` failed as expected because `internal/feedback` had no non-test Go files.
+- **Implementation:** Added ANSI/path/timing/address normalization, exact-before-pattern redaction, stable SHA-256 fingerprints, priority-ordered classification, configured regex classifiers, bounded summaries, and first/last evidence compression with truncation marking.
+- **Debugging note:** The first green run caught a real classifier ordering bug: `unexpected` contained `expected`, so a compile error was misclassified as `TEST_FAILURE`. The generic validation order now checks compile/type/lint/build signals before test assertion wording.
+- **Green evidence:** In `F:\codes\ai4se-executor-feedback`, `go test ./internal/feedback -v` passed fingerprint stability, secret redaction, summary/evidence/fingerprint secrecy, required category coverage, configured regex classification, and output compression tests.
