@@ -129,6 +129,18 @@ func TestMutationRequiresCanonicalPayload(t *testing.T) {
 	}
 }
 
+func TestCreateFileRejectsNonStringContent(t *testing.T) {
+	for _, args := range []json.RawMessage{
+		json.RawMessage(`{"path":"a.go","content":null}`),
+		json.RawMessage(`{"path":"a.go","content":1}`),
+	} {
+		got := policy.NewEngine().Evaluate(policy.Context{Profile: domain.ProfileWorkspaceAuto}, domain.Action{Kind: "create_file", Args: args})
+		if got.Verdict != policy.Deny || got.Risk != policy.RiskHardDenied {
+			t.Fatalf("args %s: got %#v", args, got)
+		}
+	}
+}
+
 func TestWorkspaceAutoRequiresApprovalForGuardedMutation(t *testing.T) {
 	args, err := json.Marshal(map[string]string{"patch": "--- a/vendor/generated.go\n+++ b/vendor/generated.go\n" + strings.Repeat("+change\n", 501)})
 	if err != nil {

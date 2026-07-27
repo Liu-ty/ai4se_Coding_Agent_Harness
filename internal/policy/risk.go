@@ -90,8 +90,13 @@ func validateCreateFile(raw json.RawMessage, facts *actionFacts) (Risk, string, 
 	if json.Unmarshal(raw, &fields) != nil || fields["path"] == nil || fields["content"] == nil {
 		return RiskHardDenied, "INVALID_CREATE_SCHEMA", "create_file requires a path and UTF-8 content"
 	}
-	var path, content string
-	if json.Unmarshal(fields["path"], &path) != nil || json.Unmarshal(fields["content"], &content) != nil || path == "" {
+	var path string
+	var rawContent any
+	if json.Unmarshal(fields["path"], &path) != nil || json.Unmarshal(fields["content"], &rawContent) != nil || path == "" {
+		return RiskHardDenied, "INVALID_CREATE_SCHEMA", "create_file requires a path and UTF-8 content"
+	}
+	content, ok := rawContent.(string)
+	if !ok {
 		return RiskHardDenied, "INVALID_CREATE_SCHEMA", "create_file requires a path and UTF-8 content"
 	}
 	inspectPath(path, facts)
