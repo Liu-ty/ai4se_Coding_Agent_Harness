@@ -27,12 +27,12 @@ func TestResolveRejectsProtectedPaths(t *testing.T) {
 }
 
 func TestResolveRejectsSymlinkEscape(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlink creation needs extra privileges on some Windows hosts")
-	}
 	root := t.TempDir()
 	outside := t.TempDir()
 	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink creation is unavailable: %v", err)
+		}
 		t.Fatal(err)
 	}
 	_, err := workspace.Resolve(root, "escape/file.txt")

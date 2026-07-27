@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/workspace"
 )
+
+var errResultLimit = errors.New("result limit reached")
 
 type listTool struct {
 	root  string
@@ -126,15 +129,18 @@ func walkFiles(ctx context.Context, root string, limit int) ([]string, bool, err
 			return nil
 		}
 		paths = append(paths, rel)
+		if limit >= 0 && len(paths) > limit {
+			return errResultLimit
+		}
 		return nil
 	})
+	if errors.Is(err, errResultLimit) {
+		return paths[:limit], true, nil
+	}
 	if err != nil {
 		return nil, false, err
 	}
 	sort.Strings(paths)
-	if limit >= 0 && len(paths) > limit {
-		return paths[:limit], true, nil
-	}
 	return paths, false, nil
 }
 

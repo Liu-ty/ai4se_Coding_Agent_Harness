@@ -45,9 +45,16 @@ func (t readTool) Execute(ctx context.Context, raw json.RawMessage) (Result, err
 	hash := sha256.Sum256(content)
 	result := Result{Code: "READ", Text: string(content), SHA256: hex.EncodeToString(hash[:])}
 	if t.limit >= 0 && len(content) > t.limit {
-		result.Text, result.Truncated = string(content[:t.limit]), true
+		result.Text, result.Truncated = string(truncateUTF8(content, t.limit)), true
 	}
 	return result, nil
+}
+
+func truncateUTF8(content []byte, limit int) []byte {
+	for limit > 0 && !utf8.RuneStart(content[limit]) {
+		limit--
+	}
+	return content[:limit]
 }
 
 func isBinary(content []byte) bool { return !utf8.Valid(content) || containsNUL(content) }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
@@ -19,6 +20,17 @@ func TestReadReturnsHashAndTruncation(t *testing.T) {
 	}
 	got, err := tools.NewReadTool(root, 3).Execute(context.Background(), json.RawMessage(`{"path":"a.txt"}`))
 	if err != nil || !got.Truncated || got.SHA256 == "" || got.Text != "abc" {
+		t.Fatalf("%#v %v", got, err)
+	}
+}
+
+func TestReadTruncatesAtUTF8RuneBoundary(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "unicode.txt"), []byte("a\u4e2db"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := tools.NewReadTool(root, 2).Execute(context.Background(), json.RawMessage(`{"path":"unicode.txt"}`))
+	if err != nil || !got.Truncated || got.Text != "a" {
 		t.Fatalf("%#v %v", got, err)
 	}
 }
@@ -60,6 +72,34 @@ func TestListAndSearchAreBoundedAndSorted(t *testing.T) {
 	var matches []tools.SearchMatch
 	if err := json.Unmarshal(search.Data, &matches); err != nil || len(matches) != 1 || matches[0].Path != "a.txt" {
 		t.Fatalf("matches = %#v, %v", matches, err)
+	}
+}
+
+func TestListStopsBeforeUnreadableLaterDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ACLs, not chmod bits, control directory traversal")
+	}
+	root := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	blocked := filepath.Join(root, "z-blocked")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(blocked, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0700) })
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("test process can traverse chmod-restricted directories")
+	}
+
+	got, err := tools.NewListTool(root, 1).Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil || !got.Truncated {
+		t.Fatalf("%#v %v", got, err)
 	}
 }
 
