@@ -1,6 +1,7 @@
 package feedback
 
 import (
+	"encoding/json"
 	"regexp"
 	"sort"
 	"strings"
@@ -18,10 +19,23 @@ type Redactor struct {
 }
 
 func NewRedactor(secrets []string) Redactor {
-	copied := make([]string, 0, len(secrets))
+	copied := make([]string, 0, len(secrets)*2)
+	seen := make(map[string]struct{}, len(secrets)*2)
+	add := func(secret string) {
+		if secret == "" {
+			return
+		}
+		if _, exists := seen[secret]; exists {
+			return
+		}
+		seen[secret] = struct{}{}
+		copied = append(copied, secret)
+	}
 	for _, secret := range secrets {
-		if secret != "" {
-			copied = append(copied, secret)
+		add(secret)
+		encoded, err := json.Marshal(secret)
+		if err == nil && len(encoded) >= 2 {
+			add(string(encoded[1 : len(encoded)-1]))
 		}
 	}
 	sort.Slice(copied, func(i, j int) bool { return len(copied[i]) > len(copied[j]) })

@@ -2,6 +2,7 @@ package feedback_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -184,10 +185,20 @@ func TestProcessDoesNotExposeInvalidClassifierPattern(t *testing.T) {
 }
 
 func TestExecutionDiagnosticSurvivesValidationAndFeedback(t *testing.T) {
-	const secret = "WAIT_ERROR_SECRET_CANARY"
+	const secret = "wait-canary\"\\\n<>&"
+	data, err := json.Marshal(struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}{
+		Code:    executor.CodeExecutionError,
+		Message: "wait for command: device failure " + secret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	obs := domain.Observation{
 		Code: executor.CodeExecutionError,
-		Data: []byte(`{"execution_error":"wait for command: device failure ` + secret + `"}`),
+		Data: data,
 	}
 	ex := &executor.Mock{Results: map[string][]domain.Observation{"unit": {obs}}}
 	stage := config.CommandSpec{ID: "unit", Required: true}
@@ -209,7 +220,10 @@ func TestExecutionDiagnosticSurvivesValidationAndFeedback(t *testing.T) {
 	for _, evidence := range got.Evidence {
 		combined += "\n" + evidence.Message
 	}
-	if !strings.Contains(combined, "device failure") || strings.Contains(combined, secret) {
+	const escapedSecret = `wait-canary\"\\\n\u003c\u003e\u0026`
+	if !strings.Contains(combined, "device failure") ||
+		strings.Contains(combined, secret) ||
+		strings.Contains(combined, escapedSecret) {
 		t.Fatalf("diagnostic was lost or leaked: %#v", got)
 	}
 }
