@@ -382,3 +382,12 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Red evidence:** Added validation pipeline tests before production code. With workspace-local Go caches, `go test ./internal/validation -v` failed as expected because `internal/validation` had no non-test Go files.
 - **Implementation:** Added stable `StageResult` and `Result` types plus a `Pipeline` that runs ordered stages through `executor.Executor`, treats pass as `EXIT` with exit code zero, stops on required failures, records optional failures without blocking later required stages, and supports required-only final validation reruns.
 - **Green evidence:** In `F:\codes\ai4se-executor-feedback`, `go test ./internal/validation -v` passed ordered fail-fast, final required rerun, optional failure continuation, missing-exit failure, and context-cancellation coverage.
+
+## 2026-07-27 - Task 10: Deterministic Feedback Pipeline
+
+- **Task:** Task 10 implementation in worktree `F:\codes\ai4se-executor-feedback` on branch `codex/executor-feedback`.
+- **Skills:** `superpowers:executing-plans`, `superpowers:test-driven-development`, `superpowers:systematic-debugging`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added feedback tests before production code. With workspace-local Go caches, `go test ./internal/feedback -v` failed as expected because `internal/feedback` had no non-test Go files.
+- **Implementation:** Added ANSI/path/timing/address normalization, exact-before-pattern redaction, stable SHA-256 fingerprints, priority-ordered classification, configured regex classifiers, bounded summaries, and first/last evidence compression with truncation marking.
+- **Debugging note:** The first green run caught a real classifier ordering bug: `unexpected` contained `expected`, so a compile error was misclassified as `TEST_FAILURE`. The generic validation order now checks compile/type/lint/build signals before test assertion wording.
+- **Green evidence:** In `F:\codes\ai4se-executor-feedback`, `go test ./internal/feedback -v` passed fingerprint stability, secret redaction, summary/evidence/fingerprint secrecy, required category coverage, configured regex classification, and output compression tests.
