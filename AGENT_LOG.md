@@ -366,3 +366,11 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** `go test ./internal/tools ./internal/workspace` passed after the fix, followed by full `go test ./...` with exit code 0. Before this documentation/workspace commit, `go test ./...` and `git diff --check` also exited 0.
 - **GitHub writes:** Commit `ca12a83` was pushed to `origin/codex/policy-tools` for PR #3. This documentation/workspace follow-up records the pushed review closure in `PLAN.md` and this log.
 - **Workspace status:** After the CodeRabbit fix push, `git status --short --branch` reported `## codex/policy-tools...origin/codex/policy-tools`; no untracked or modified files remained before this documentation synchronization.
+
+## 2026-07-27 - Task 8: Cross-Platform Restricted Process Executor
+
+- **Task:** Task 8 implementation in worktree `F:\codes\ai4se-executor-feedback` on branch `codex/executor-feedback`.
+- **Skills:** `superpowers:using-superpowers`, `superpowers:executing-plans`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added executor tests before production code. With workspace-local Go caches, `go test ./internal/executor -v` failed as expected because `internal/executor` had no non-test Go files. A first invocation in the original worktree was blocked by the host Go build-cache ACL before compilation.
+- **Implementation:** Added the `executor.Executor` contract, `Local` process runner, testable `Mock`, secret-filtered explicit environment inheritance, independent bounded stdout/stderr draining, timeout/cancellation observation codes, Linux process-group cleanup, Windows Job Object cleanup, and no-shell test helper coverage.
+- **Green evidence:** In `F:\codes\ai4se-executor-feedback`, `go test ./internal/executor -v` passed stream separation, exit code capture, output bounds, secret environment filtering, timeout cleanup, and context-cancellation cleanup on Windows.
