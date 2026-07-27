@@ -578,7 +578,7 @@ This gate records confirmed SPEC §6.1 and backend-contract defects found by the
 
 ---
 
-### Task 5: Policy Engine, Permission Profiles, and Exact Approvals
+### Task 5: Policy Engine, Permission Profiles, and Exact Approvals - complete (`fa57720`, review fixes `cf0f505`, `730a9b2`, `933ce1c`)
 
 **Files:**
 - Create: `internal/policy/policy.go`
@@ -591,7 +591,7 @@ This gate records confirmed SPEC §6.1 and backend-contract defects found by the
 - Consumes: `domain.Action`, run/profile/baselines, workspace risk facts.
 - Produces: `policy.Engine.Evaluate(Context, Action) Decision`, `policy.ApprovalDigest`, and one-use `ApprovalStore`.
 
-- [ ] **Step 1: Write the failing profile matrix and digest tests**
+- [x] **Step 1: Write the failing profile matrix and digest tests**
 
 ```go
 func TestPatchProfileMatrix(t *testing.T) {
@@ -613,12 +613,12 @@ func TestApprovalDigestChangesWithBaseline(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/policy -v`  
 Expected: FAIL because policy types are missing.
 
-- [ ] **Step 3: Implement risk-first policy evaluation**
+- [x] **Step 3: Implement risk-first policy evaluation**
 
 ```go
 type Verdict string
@@ -633,11 +633,11 @@ func (Engine) Evaluate(Context, domain.Action) Decision
 
 Hard-deny unknown/raw-shell/network/credential/repository-escape facts before applying profile mappings. Guard large/protected/dirty-worktree mutations. A review-mode patch is denied but its redacted request can later be saved as a proposal artifact.
 
-- [ ] **Step 4: Implement one-use approval consumption**
+- [x] **Step 4: Implement one-use approval consumption**
 
 `ApprovalStore.Grant(digest)` records one digest; `Consume(digest)` succeeds exactly once. A changed action/profile/baseline produces a new digest and cannot consume the old grant.
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/policy -v`  
 Expected: PASS for profile matrix, hard denials, guarded limits, dirty workspace, digest binding, one-use consumption, and repository config unable to loosen policy.

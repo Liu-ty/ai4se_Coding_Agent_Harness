@@ -307,3 +307,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Implementation:** Added a closed course-delivery action registry; risk-first hard denials for unknown actions, escape, `.git`, credential, binary, and unsafe facts; guarded normal limits and protected paths; review/supervised/workspace-auto mappings; deterministic sorted-baseline SHA-256 approval digests; and a mutex-protected, one-use `ApprovalStore` that also supports its zero value.
 - **Self-review:** Confirmed policy has no repository configuration input that could loosen user-level decisions, approval grants bind run/profile/action/baselines, denied decisions contain no action arguments, and Task 6 workspace/tool execution was not started.
 - **Concern:** The full Go gate initially timed out during dependency download to the workspace-local cache. It completed successfully after approved network/cache access; no dependencies were changed. The requested `git add`/`git commit` was blocked because the sandbox denied creation of `.git/index.lock`; the working tree remains cleanly modified for the controller to stage and commit.
+
+## 2026-07-27 - Task 5 Independent Review and Closure
+
+- **Task:** TASK-5-REVIEW-001.
+- **Skills:** `superpowers:subagent-driven-development`, `superpowers:receiving-code-review`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Implementation commits:** `fa57720` added the initial policy engine and one-use approval store; `cf0f505` hardened `.git`, configured-check, key/endpoint-mismatch, and payload-derived limit handling; `730a9b2` required canonical mutation payloads; `933ce1c` rejected non-string `create_file` content.
+- **Review loop:** The task reviewer found bypasses for dot-segment `.git` paths, arbitrary `run_check` command payloads, missing key/endpoint-mismatch hard denial, and mutation schema trust. Three scoped re-reviews verified each fix round; the final re-review returned all findings addressed with no new Critical or Important breakage.
+- **Verification:** Controller-side focused policy tests, full `go test ./... -count=1` using workspace-local Go caches, and `git diff --check` passed after the final fix.
+- **Human intervention:** None beyond approval for Git branch, staging, and commit operations blocked by the sandbox's `.git` write restrictions.
+- **Lesson:** Policy code must validate canonical action payload shape itself; treating caller-supplied risk metadata as trusted creates the exact bypasses the policy layer is meant to prevent.
