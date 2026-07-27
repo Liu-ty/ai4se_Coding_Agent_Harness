@@ -716,7 +716,7 @@ git commit -m "feat: add bounded repository read tools"
 
 ---
 
-### Task 7: Safe Patch and File-Creation Tools
+### Task 7: Safe Patch and File-Creation Tools - complete (`c4ffddd`, review fix `bbffdeb`)
 
 **Files:**
 - Create: `internal/tools/patch.go`
@@ -730,7 +730,7 @@ git commit -m "feat: add bounded repository read tools"
 - Consumes: `workspace.Resolve`, baseline SHA-256 map, policy limits, installed Git executable.
 - Produces: `apply_patch` and `create_file` tools returning changed paths and diff digests; no partial mutation on failure.
 
-- [ ] **Step 1: Write failing stale-baseline, conflict, protected-path, atomicity, and no-overwrite tests**
+- [x] **Step 1: Write failing stale-baseline, conflict, protected-path, atomicity, and no-overwrite tests**
 
 ```go
 func TestPatchRejectsStaleBaselineWithoutMutation(t *testing.T) {
@@ -748,22 +748,22 @@ func TestCreateNeverOverwrites(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/tools -run 'TestPatch|TestCreate' -v`  
 Expected: FAIL because patch/create tools do not exist.
 
-- [ ] **Step 3: Implement deterministic patch-header parsing and validation**
+- [x] **Step 3: Implement deterministic patch-header parsing and validation**
 
 Parse only unified-diff file headers and hunks. Reject rename, delete, binary patch, absolute paths, `/dev/null` for existing-file patching, duplicate paths, more than five files, and more than 500 added/deleted lines. Resolve every path through `workspace.Resolve` and compare every supplied baseline hash before invoking Git.
 
-- [ ] **Step 4: Implement all-or-nothing Git apply and create**
+- [x] **Step 4: Implement all-or-nothing Git apply and create**
 
 Run `git apply --check --whitespace=nowarn -` with patch bytes on stdin; only on success run `git apply --whitespace=nowarn -` without `--reject`. Recheck all baselines immediately before the real apply. Git’s non-reject path must leave all targets unchanged on failure; verify this against captured hashes and escalate any unexpected mutation as `PATCH_ATOMICITY_BREACH` without running reset/clean. Return a sorted path list plus SHA-256 of the resulting `git diff --binary` output.
 
 `create_file` opens the target directly with `O_CREATE|O_EXCL`, writes, fsyncs, and closes after policy and size checks. On write/sync failure it removes the newly created path; it never overwrites an existing path.
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/tools -run 'TestPatch|TestCreate' -v`  
 Expected: PASS for clean apply, conflict, stale baseline, atomic injected failure, delete/rename/binary rejection, protected path, limits, and no overwrite.
