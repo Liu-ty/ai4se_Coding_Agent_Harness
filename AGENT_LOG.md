@@ -355,3 +355,14 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** Controller-side `go test ./internal/tools -run 'TestPatch|TestCreate' -v`, full `go test ./... -count=1`, `gofmt -l internal`, and `git diff --check` passed after the final fix.
 - **Human intervention:** None beyond approval for Git staging and commit operations blocked by sandbox `.git` write restrictions.
 - **Lesson:** Unified diff parsers must honor hunk line counts before interpreting header-looking text; patch payload can contain strings that look like file headers.
+
+## 2026-07-27 - PR #3 CodeRabbit Follow-up and Workspace Sync
+
+- **Task:** PR-3-CODERABBIT-FOLLOWUP-001.
+- **Skills:** `github:gh-address-comments`, `superpowers:receiving-code-review`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Review intake:** CodeRabbit reported five actionable unresolved PR #3 threads: mode-change patch headers were not rejected, a post-apply `git diff --binary` failure could return an unclassified error after mutation, `GitBaseline` could wait forever on Git because it lacked context, nested `.git` directories could be traversed, and `workspace.Resolve` did not re-check protected canonical targets after symlink resolution.
+- **Red evidence:** Regression tests were added before production fixes. With approved Go build-cache access, `go test ./internal/tools ./internal/workspace` failed on the new mode-change rejection, diff-failure rollback/classification, nested `.git` traversal, and the new `GitBaseline(context.Context, root)` contract.
+- **Implementation:** Commit `ca12a83` rejects Git mode-change patch headers, restores or classifies mutations when diff capture fails after apply, runs Git baseline commands through `exec.CommandContext`, blocks `.git` at any path depth, skips nested Git directories during list/search traversal, and rejects symlinks whose canonical targets resolve to protected paths inside the workspace.
+- **Verification:** `go test ./internal/tools ./internal/workspace` passed after the fix, followed by full `go test ./...` with exit code 0. Before this documentation/workspace commit, `go test ./...` and `git diff --check` also exited 0.
+- **GitHub writes:** Commit `ca12a83` was pushed to `origin/codex/policy-tools` for PR #3. This documentation/workspace follow-up records the pushed review closure in `PLAN.md` and this log.
+- **Workspace status:** After the CodeRabbit fix push, `git status --short --branch` reported `## codex/policy-tools...origin/codex/policy-tools`; no untracked or modified files remained before this documentation synchronization.
