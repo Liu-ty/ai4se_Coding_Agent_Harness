@@ -110,6 +110,25 @@ func TestMutationLimitsAreDerivedFromCanonicalPayload(t *testing.T) {
 	}
 }
 
+func TestMutationRequiresCanonicalPayload(t *testing.T) {
+	cases := []struct {
+		name   string
+		action domain.Action
+	}{
+		{"non-diff patch", domain.Action{Kind: "apply_patch", Args: json.RawMessage(`{"patch":"arbitrary text"}`)}},
+		{"missing create content", domain.Action{Kind: "create_file", Args: json.RawMessage(`{"path":"a.go"}`)}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := policy.NewEngine().Evaluate(policy.Context{Profile: domain.ProfileWorkspaceAuto}, tc.action)
+			if got.Verdict != policy.Deny || got.Risk != policy.RiskHardDenied {
+				t.Fatalf("got %#v", got)
+			}
+		})
+	}
+}
+
 func TestWorkspaceAutoRequiresApprovalForGuardedMutation(t *testing.T) {
 	args, err := json.Marshal(map[string]string{"patch": "--- a/vendor/generated.go\n+++ b/vendor/generated.go\n" + strings.Repeat("+change\n", 501)})
 	if err != nil {

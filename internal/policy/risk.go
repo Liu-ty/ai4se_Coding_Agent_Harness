@@ -86,47 +86,68 @@ func validateRunCheck(ctx Context, raw json.RawMessage) (Risk, string, string) {
 }
 
 func validateCreateFile(raw json.RawMessage, facts *actionFacts) (Risk, string, string) {
-	var args struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
-	}
-	if json.Unmarshal(raw, &args) != nil || args.Path == "" {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields["path"] == nil || fields["content"] == nil {
 		return RiskHardDenied, "INVALID_CREATE_SCHEMA", "create_file requires a path and UTF-8 content"
 	}
-	inspectPath(args.Path, facts)
+	var path, content string
+	if json.Unmarshal(fields["path"], &path) != nil || json.Unmarshal(fields["content"], &content) != nil || path == "" {
+		return RiskHardDenied, "INVALID_CREATE_SCHEMA", "create_file requires a path and UTF-8 content"
+	}
+	inspectPath(path, facts)
 	if facts.hardDenied {
 		return RiskHardDenied, facts.code, facts.message
 	}
-	if len(args.Content) > maxFileBytes {
+	if len(content) > maxFileBytes {
 		facts.guarded, facts.code, facts.message = true, "FILE_TOO_LARGE", "mutation writes too many bytes"
 	}
 	return RiskNormal, "", ""
 }
 
 func validatePatch(raw json.RawMessage, facts *actionFacts) (Risk, string, string) {
-	var args struct {
-		Patch string `json:"patch"`
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields["patch"] == nil {
+		return RiskHardDenied, "INVALID_PATCH_SCHEMA", "apply_patch requires a patch payload"
 	}
-	if json.Unmarshal(raw, &args) != nil || args.Patch == "" {
+	var patch string
+	if json.Unmarshal(fields["patch"], &patch) != nil || patch == "" {
 		return RiskHardDenied, "INVALID_PATCH_SCHEMA", "apply_patch requires a patch payload"
 	}
 
 	files := make(map[string]struct{})
 	changedLines := 0
-	for _, line := range strings.Split(args.Patch, "\n") {
-		if strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- ") {
-			path := strings.TrimSpace(line[4:])
-			path = strings.TrimPrefix(path, "a/")
-			path = strings.TrimPrefix(path, "b/")
-			if path != "/dev/null" {
+	var oldPath string
+	pairs := 0
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, "--- ") {
+			oldPath = diffPath(line[4:], "a/")
+			if oldPath == "" {
+				return RiskHardDenied, "INVALID_PATCH_SCHEMA", "apply_patch requires unified diff file headers"
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "+++ ") {
+			newPath := diffPath(line[4:], "b/")
+			if oldPath == "" || newPath == "" {
+				return RiskHardDenied, "INVALID_PATCH_SCHEMA", "apply_patch requires unified diff file headers"
+			}
+			for _, path := range []string{oldPath, newPath} {
+				if path == "/dev/null" {
+					continue
+				}
 				inspectPath(path, facts)
 				files[path] = struct{}{}
 			}
+			pairs++
+			oldPath = ""
 			continue
 		}
 		if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
 			changedLines++
 		}
+	}
+	if pairs == 0 || oldPath != "" || len(files) == 0 {
+		return RiskHardDenied, "INVALID_PATCH_SCHEMA", "apply_patch requires unified diff file headers"
 	}
 	if facts.hardDenied {
 		return RiskHardDenied, facts.code, facts.message
@@ -138,6 +159,14 @@ func validatePatch(raw json.RawMessage, facts *actionFacts) (Risk, string, strin
 		facts.guarded, facts.code, facts.message = true, "TOO_MANY_CHANGED_LINES", "mutation changes too many lines"
 	}
 	return RiskNormal, "", ""
+}
+
+func diffPath(header, prefix string) string {
+	fields := strings.Fields(header)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.TrimPrefix(fields[0], prefix)
 }
 
 type actionFacts struct {
