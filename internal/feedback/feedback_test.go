@@ -59,6 +59,7 @@ func TestProcessClassifiesRequiredCategories(t *testing.T) {
 		{name: "path denial", in: input("policy", "REPOSITORY_ESCAPE", "", 0), want: "POLICY_DENIED"},
 		{name: "stale patch", in: input("patch", "STALE_PATCH", "", 0), want: "STALE_PATCH"},
 		{name: "missing executable", in: input("go-test", executor.CodeStartError, "executable file not found in PATH", 0), want: "MISSING_EXECUTABLE"},
+		{name: "execution failure", in: input("go-test", executor.CodeExecutionError, "wait for command failed", 0), want: "ENVIRONMENT_FAILURE"},
 		{name: "timeout", in: input("go-test", executor.CodeTimeout, "", 0), want: "TIMEOUT"},
 		{name: "cancellation", in: input("go-test", executor.CodeCancelled, "", 0), want: "CANCELLED"},
 		{name: "test failure", in: input("unit", executor.CodeExit, "--- FAIL: TestThing\nexpected true", 1), want: "TEST_FAILURE"},
@@ -149,12 +150,33 @@ func TestProcessSurfacesInvalidClassifierRule(t *testing.T) {
 	}
 	var found bool
 	for _, evidence := range got.Evidence {
-		if evidence.Source == "classifier" && strings.Contains(evidence.Message, `invalid classifier rule "BROKEN"`) {
+		if evidence.Source == "classifier" && evidence.Message == "invalid classifier rule at index 0" {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatalf("invalid classifier diagnostic not surfaced: %#v", got.Evidence)
+	}
+}
+
+func TestProcessDoesNotExposeInvalidClassifierPattern(t *testing.T) {
+	const canary = "CANARY_CLASSIFIER_SECRET_DO_NOT_LOG"
+	got := feedback.Pipeline{}.Process(feedback.Input{
+		StageID: "custom",
+		Code:    executor.CodeExit,
+		Observation: domain.Observation{
+			Code:     executor.CodeExit,
+			ExitCode: intp(1),
+			Stdout:   "ordinary validation failure",
+		},
+		Rules: []config.ClassifierRule{
+			{Category: "BROKEN", Pattern: "(?P<" + canary},
+		},
+	})
+	for _, evidence := range got.Evidence {
+		if strings.Contains(evidence.Message, canary) {
+			t.Fatalf("classifier pattern leaked in evidence: %#v", got.Evidence)
+		}
 	}
 }
 

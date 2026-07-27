@@ -11,10 +11,11 @@ import (
 var ErrUnsupportedPlatform = errors.New("unsupported executor platform: only Windows and Linux are supported")
 
 const (
-	CodeExit       = "EXIT"
-	CodeStartError = "START_ERROR"
-	CodeTimeout    = "TIMEOUT"
-	CodeCancelled  = "CANCELLED"
+	CodeExit           = "EXIT"
+	CodeStartError     = "START_ERROR"
+	CodeExecutionError = "EXECUTION_ERROR"
+	CodeTimeout        = "TIMEOUT"
+	CodeCancelled      = "CANCELLED"
 )
 
 type Executor interface {

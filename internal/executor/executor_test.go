@@ -96,14 +96,30 @@ func TestExecutorTimeoutCleansUpProcessTree(t *testing.T) {
 	dir := t.TempDir()
 	heartbeat := filepath.Join(dir, "heartbeat")
 	spec := helperSpec(t, "spawn-child", heartbeat)
-	spec.Timeout = 250 * time.Millisecond
 
-	got, err := executor.NewLocal().Run(context.Background(), spec)
-	if err != nil {
-		t.Fatalf("run spawn-child: %v", err)
-	}
-	if got.Code != executor.CodeTimeout {
-		t.Fatalf("code = %q, want %q; observation=%#v", got.Code, executor.CodeTimeout, got)
+	done := make(chan struct {
+		obsCode string
+		err     error
+	}, 1)
+	go func() {
+		got, err := executor.NewLocal().Run(context.Background(), spec)
+		done <- struct {
+			obsCode string
+			err     error
+		}{obsCode: got.Code, err: err}
+	}()
+
+	waitForHeartbeat(t, heartbeat)
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("run spawn-child: %v", got.err)
+		}
+		if got.obsCode != executor.CodeTimeout {
+			t.Fatalf("code = %q, want %q", got.obsCode, executor.CodeTimeout)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("executor did not return after timeout")
 	}
 	assertHeartbeatStopped(t, heartbeat)
 }
@@ -138,6 +154,19 @@ func TestExecutorContextCancellationCleansUpProcessTree(t *testing.T) {
 		}
 	case <-time.After(4 * time.Second):
 		t.Fatal("executor did not return after cancellation")
+	}
+	assertHeartbeatStopped(t, heartbeat)
+}
+
+func TestExecutorNormalExitCleansUpProcessTree(t *testing.T) {
+	dir := t.TempDir()
+	heartbeat := filepath.Join(dir, "heartbeat")
+	got, err := executor.NewLocal().Run(context.Background(), helperSpec(t, "spawn-child-exit", heartbeat))
+	if err != nil {
+		t.Fatalf("run spawn-child-exit: %v", err)
+	}
+	if got.Code != executor.CodeExit || got.ExitCode == nil || *got.ExitCode != 0 {
+		t.Fatalf("observation = %#v, want successful exit", got)
 	}
 	assertHeartbeatStopped(t, heartbeat)
 }

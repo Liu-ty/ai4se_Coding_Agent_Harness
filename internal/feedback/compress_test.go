@@ -16,6 +16,7 @@ func TestSummarizeTruncatesAtUTF8Boundary(t *testing.T) {
 		{name: "Chinese split", text: "你好", maxBytes: len(prefix) + 1, want: prefix},
 		{name: "emoji split", text: "ok🙂tail", maxBytes: len(prefix) + len("ok") + 1, want: prefix + "ok"},
 		{name: "exact character boundary", text: "你tail", maxBytes: len(prefix) + len("你"), want: prefix + "你"},
+		{name: "short invalid UTF-8", text: "ok " + string([]byte{0xff}), maxBytes: len(prefix) + 10, want: prefix + "ok "},
 		{name: "zero limit", text: "你好", maxBytes: 0, want: ""},
 		{name: "negative limit", text: "你好", maxBytes: -1, want: ""},
 	}

@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/config"
@@ -62,7 +64,9 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 		}, err
 	}
 	defer controller.close()
+	var interrupted atomic.Bool
 	cmd.Cancel = func() error {
+		interrupted.Store(true)
 		controller.terminate()
 		return nil
 	}
@@ -103,22 +107,20 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 	}()
 
 	waitErr := cmd.Wait()
+	controller.close()
 	wg.Wait()
 
+	wasInterrupted := interrupted.Load()
 	code := CodeExit
-	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+	if wasInterrupted && spec.Timeout > 0 && !errors.Is(ctx.Err(), context.Canceled) {
 		code = CodeTimeout
-	} else if errors.Is(ctx.Err(), context.Canceled) {
+	} else if wasInterrupted && errors.Is(ctx.Err(), context.Canceled) {
 		code = CodeCancelled
 	}
 
-	var exitCode *int
-	if waitErr == nil {
-		zero := 0
-		exitCode = &zero
-	} else if exit, ok := waitErr.(*exec.ExitError); ok {
-		codeValue := exit.ExitCode()
-		exitCode = &codeValue
+	exitCode, executionErr := interpretWaitError(waitErr, wasInterrupted)
+	if executionErr != nil {
+		code = CodeExecutionError
 	}
 
 	return domain.Observation{
@@ -129,7 +131,7 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 		OutputTruncated: outBuf.Truncated() || errBuf.Truncated(),
 		StartedAt:       started,
 		EndedAt:         clock(),
-	}, nil
+	}, executionErr
 }
 
 func startErrorObservation(started time.Time, clock func() time.Time, err error) domain.Observation {
@@ -189,4 +191,19 @@ func (b *boundedBuffer) String() string {
 
 func (b *boundedBuffer) Truncated() bool {
 	return b.truncated
+}
+
+func interpretWaitError(waitErr error, interrupted bool) (*int, error) {
+	if waitErr == nil {
+		zero := 0
+		return &zero, nil
+	}
+	if exit, ok := waitErr.(*exec.ExitError); ok {
+		code := exit.ExitCode()
+		return &code, nil
+	}
+	if interrupted {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("wait for command: %w", waitErr)
 }

@@ -3,7 +3,10 @@
 package executor
 
 import (
+	"errors"
+	"fmt"
 	"os/exec"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -14,6 +17,11 @@ type processTree struct {
 }
 
 func prepareProcessTree(cmd *exec.Cmd) (processTreeController, error) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, err
@@ -38,7 +46,53 @@ func (p *processTree) afterStart(cmd *exec.Cmd) error {
 		return err
 	}
 	defer windows.CloseHandle(proc)
-	return windows.AssignProcessToJobObject(p.job, proc)
+	if err := windows.AssignProcessToJobObject(p.job, proc); err != nil {
+		return err
+	}
+	return resumeProcessThreads(uint32(cmd.Process.Pid))
+}
+
+func resumeProcessThreads(pid uint32) error {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	if err != nil {
+		return fmt.Errorf("snapshot process threads: %w", err)
+	}
+	defer windows.CloseHandle(snapshot)
+
+	entry := windows.ThreadEntry32{Size: uint32(unsafe.Sizeof(windows.ThreadEntry32{}))}
+	if err := windows.Thread32First(snapshot, &entry); err != nil {
+		return fmt.Errorf("enumerate process threads: %w", err)
+	}
+	resumed := false
+	for {
+		if entry.OwnerProcessID == pid {
+			thread, err := windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
+			if err != nil {
+				return fmt.Errorf("open suspended process thread: %w", err)
+			}
+			_, resumeErr := windows.ResumeThread(thread)
+			closeErr := windows.CloseHandle(thread)
+			if resumeErr != nil {
+				return fmt.Errorf("resume process thread: %w", resumeErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("close process thread: %w", closeErr)
+			}
+			resumed = true
+		}
+
+		err := windows.Thread32Next(snapshot, &entry)
+		if errors.Is(err, windows.ERROR_NO_MORE_FILES) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("enumerate process threads: %w", err)
+		}
+	}
+	if !resumed {
+		return errors.New("suspended process thread not found")
+	}
+	return nil
 }
 
 func (p *processTree) terminate() {

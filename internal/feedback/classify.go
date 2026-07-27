@@ -103,6 +103,8 @@ func classify(in Input, text string) (string, []domain.Evidence) {
 			return "MISSING_EXECUTABLE", diagnostics
 		}
 		return "ENVIRONMENT_FAILURE", diagnostics
+	case executor.CodeExecutionError:
+		return "ENVIRONMENT_FAILURE", diagnostics
 	}
 
 	for _, rule := range compiledRules {
@@ -139,24 +141,32 @@ type compiledClassifierRule struct {
 }
 
 type cachedClassifierPattern struct {
-	re  *regexp.Regexp
-	err error
+	re    *regexp.Regexp
+	valid bool
 }
 
-var classifierPatternCache sync.Map
+const classifierPatternCacheLimit = 128
+
+type classifierRegexpCache struct {
+	mu      sync.RWMutex
+	limit   int
+	entries map[string]cachedClassifierPattern
+}
+
+var classifierPatternCache = newClassifierPatternCache(classifierPatternCacheLimit)
 
 func compileClassifierRules(rules []config.ClassifierRule) ([]compiledClassifierRule, []domain.Evidence) {
 	compiled := make([]compiledClassifierRule, 0, len(rules))
 	var diagnostics []domain.Evidence
-	for _, rule := range rules {
+	for index, rule := range rules {
 		if rule.Category == "" || rule.Pattern == "" {
 			continue
 		}
 		pattern := cachedClassifierRegexp(rule.Pattern)
-		if pattern.err != nil {
+		if !pattern.valid {
 			diagnostics = append(diagnostics, domain.Evidence{
 				Source:  "classifier",
-				Message: fmt.Sprintf("invalid classifier rule %q: %v", rule.Category, pattern.err),
+				Message: fmt.Sprintf("invalid classifier rule at index %d", index),
 			})
 			continue
 		}
@@ -166,13 +176,42 @@ func compileClassifierRules(rules []config.ClassifierRule) ([]compiledClassifier
 }
 
 func cachedClassifierRegexp(pattern string) cachedClassifierPattern {
-	if cached, ok := classifierPatternCache.Load(pattern); ok {
-		return cached.(cachedClassifierPattern)
+	return classifierPatternCache.loadOrStore(pattern)
+}
+
+func newClassifierPatternCache(limit int) *classifierRegexpCache {
+	return &classifierRegexpCache{
+		limit:   limit,
+		entries: make(map[string]cachedClassifierPattern),
 	}
+}
+
+func (c *classifierRegexpCache) loadOrStore(pattern string) cachedClassifierPattern {
+	c.mu.RLock()
+	cached, ok := c.entries[pattern]
+	c.mu.RUnlock()
+	if ok {
+		return cached
+	}
+
 	compiled, err := regexp.Compile(pattern)
-	value := cachedClassifierPattern{re: compiled, err: err}
-	actual, _ := classifierPatternCache.LoadOrStore(pattern, value)
-	return actual.(cachedClassifierPattern)
+	value := cachedClassifierPattern{re: compiled, valid: err == nil}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cached, ok := c.entries[pattern]; ok {
+		return cached
+	}
+	if len(c.entries) < c.limit {
+		c.entries[pattern] = value
+	}
+	return value
+}
+
+func (c *classifierRegexpCache) len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.entries)
 }
 
 func missingExecutable(text string) bool {

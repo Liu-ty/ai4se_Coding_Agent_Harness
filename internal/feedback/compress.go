@@ -44,15 +44,20 @@ func summarize(category, text string, maxBytes int) (string, bool) {
 	if len(lines) > 0 {
 		summary = category + ": " + lines[0]
 	}
-	if len(summary) <= maxBytes {
-		return summary, false
-	}
 	if maxBytes <= 0 {
 		return "", true
 	}
-	truncated := summary[:maxBytes]
-	for len(truncated) > 0 && !utf8.ValidString(truncated) {
-		truncated = truncated[:len(truncated)-1]
+	limit := len(summary)
+	if limit > maxBytes {
+		limit = maxBytes
 	}
-	return truncated, true
+	prefix := summary[:limit]
+	for offset := 0; offset < len(prefix); {
+		r, size := utf8.DecodeRuneInString(prefix[offset:])
+		if r == utf8.RuneError && size == 1 {
+			return prefix[:offset], true
+		}
+		offset += size
+	}
+	return prefix, limit < len(summary)
 }
