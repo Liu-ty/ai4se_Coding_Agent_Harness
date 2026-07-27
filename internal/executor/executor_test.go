@@ -25,6 +25,31 @@ func TestExecutorCapturesSeparateStreamsAndExitCode(t *testing.T) {
 	}
 }
 
+func TestExecutorDrainsBothStreamsBeforeReturning(t *testing.T) {
+	spec := helperSpec(t, "stream-burst")
+	spec.MaxOutputBytes = 1024 * 1024
+	wantStdout := strings.Repeat("O", spec.MaxOutputBytes)
+	wantStderr := strings.Repeat("E", spec.MaxOutputBytes)
+
+	for attempt := 0; attempt < 20; attempt++ {
+		got, err := executor.NewLocal().Run(context.Background(), spec)
+		if err != nil {
+			t.Fatalf("attempt %d: run stream burst: %v", attempt, err)
+		}
+		if got.Stdout != wantStdout || got.Stderr != wantStderr || got.ExitCode == nil || *got.ExitCode != 7 {
+			t.Fatalf(
+				"attempt %d: stdout/stderr lengths = %d/%d, exit = %v; want %d/%d and 7",
+				attempt,
+				len(got.Stdout),
+				len(got.Stderr),
+				got.ExitCode,
+				len(wantStdout),
+				len(wantStderr),
+			)
+		}
+	}
+}
+
 func TestExecutorBoundsStdoutAndStderrIndependently(t *testing.T) {
 	spec := helperSpec(t, "large-output")
 	spec.MaxOutputBytes = 12
@@ -182,6 +207,22 @@ func TestExecutorNormalExitCleansUpProcessTree(t *testing.T) {
 	got, err := executor.NewLocal().Run(context.Background(), helperSpec(t, "spawn-child-exit", heartbeat))
 	if err != nil {
 		t.Fatalf("run spawn-child-exit: %v", err)
+	}
+	if got.Code != executor.CodeExit || got.ExitCode == nil || *got.ExitCode != 0 {
+		t.Fatalf("observation = %#v, want successful exit", got)
+	}
+	assertHeartbeatStopped(t, heartbeat)
+}
+
+func TestExecutorNormalExitDrainsInheritedPipesAfterProcessTreeCleanup(t *testing.T) {
+	dir := t.TempDir()
+	heartbeat := filepath.Join(dir, "heartbeat")
+	spec := helperSpec(t, "spawn-child-inherit-exit", heartbeat)
+	spec.Timeout = 5 * time.Second
+
+	got, err := executor.NewLocal().Run(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("run spawn-child-inherit-exit: %v; observation=%#v", err, got)
 	}
 	if got.Code != executor.CodeExit || got.ExitCode == nil || *got.ExitCode != 0 {
 		t.Fatalf("observation = %#v, want successful exit", got)

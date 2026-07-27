@@ -80,49 +80,74 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 	}
 	cmd.WaitDelay = 2 * time.Second
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return startErrorObservation(started, clock, err), err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return startErrorObservation(started, clock, err), err
-	}
-	if err := cmd.Start(); err != nil {
-		return startErrorObservation(started, clock, err), err
-	}
-	if err := controller.afterStart(cmd); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return startErrorObservation(started, clock, err), err
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(2)
 	outCap := spec.MaxOutputBytes
 	if outCap <= 0 {
 		outCap = 64 * 1024
 	}
 	outBuf := newBoundedBuffer(outCap)
 	errBuf := newBoundedBuffer(outCap)
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		return startErrorObservation(started, clock, err), err
+	}
+	defer stdoutReader.Close()
+	defer stdoutWriter.Close()
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		return startErrorObservation(started, clock, err), err
+	}
+	defer stderrReader.Close()
+	defer stderrWriter.Close()
+	cmd.Stdout = stdoutWriter
+	cmd.Stderr = stderrWriter
+
+	if err := cmd.Start(); err != nil {
+		return startErrorObservation(started, clock, err), err
+	}
+	_ = stdoutWriter.Close()
+	_ = stderrWriter.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(outBuf, stdout)
+		_, _ = io.Copy(outBuf, stdoutReader)
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(errBuf, stderr)
+		_, _ = io.Copy(errBuf, stderrReader)
 	}()
+
+	if err := controller.afterStart(cmd); err != nil {
+		_ = stdoutReader.Close()
+		_ = stderrReader.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		_ = controller.close()
+		wg.Wait()
+		return startErrorObservation(started, clock, err), err
+	}
 
 	waitCommand := l.waitCommand
 	if waitCommand == nil {
 		waitCommand = func(cmd *exec.Cmd) error { return cmd.Wait() }
 	}
 	waitErr := waitCommand(cmd)
-	cleanupErr := controller.close()
-	wg.Wait()
-
 	wasInterrupted := interrupted.Load()
+	cleanupErr := controller.close()
+	drainTruncated := false
+	if cleanupErr != nil {
+		drainTruncated = true
+		_ = stdoutReader.Close()
+		_ = stderrReader.Close()
+		wg.Wait()
+	} else if waitForOutputDrain(runCtx, cmd.WaitDelay, &wg, stdoutReader, stderrReader) {
+		drainTruncated = true
+		if !wasInterrupted {
+			cleanupErr = errors.New("output pipes remained open after process-tree cleanup")
+		}
+	}
+
 	code := CodeExit
 	if wasInterrupted && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		code = CodeTimeout
@@ -145,11 +170,39 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 		ExitCode:        exitCode,
 		Stdout:          outBuf.String(),
 		Stderr:          errBuf.String(),
-		OutputTruncated: outBuf.Truncated() || errBuf.Truncated() || diagnosticTruncated,
+		OutputTruncated: outBuf.Truncated() || errBuf.Truncated() || diagnosticTruncated || drainTruncated,
 		StartedAt:       started,
 		EndedAt:         clock(),
 		Data:            diagnostic,
 	}, executionErr
+}
+
+func waitForOutputDrain(ctx context.Context, maxWait time.Duration, wg *sync.WaitGroup, readers ...io.Closer) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return false
+	default:
+	}
+
+	timer := time.NewTimer(maxWait)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return false
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+	for _, reader := range readers {
+		_ = reader.Close()
+	}
+	<-done
+	return true
 }
 
 func startErrorObservation(started time.Time, clock func() time.Time, err error) domain.Observation {

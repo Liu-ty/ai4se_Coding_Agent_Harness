@@ -17,6 +17,10 @@ func main() {
 		fmt.Fprintln(os.Stdout, "out")
 		fmt.Fprintln(os.Stderr, "err")
 		os.Exit(7)
+	case "stream-burst":
+		fmt.Fprint(os.Stdout, strings.Repeat("O", 1024*1024))
+		fmt.Fprint(os.Stderr, strings.Repeat("E", 1024*1024))
+		os.Exit(7)
 	case "large-output":
 		fmt.Fprint(os.Stdout, strings.Repeat("O", 128*1024))
 		fmt.Fprint(os.Stderr, strings.Repeat("E", 128*1024))
@@ -49,6 +53,25 @@ func main() {
 			os.Exit(2)
 		}
 		cmd := exec.Command(os.Args[0], "heartbeat", os.Args[2])
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(3)
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if info, err := os.Stat(os.Args[2]); err == nil && info.Size() > 0 {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		os.Exit(4)
+	case "spawn-child-inherit-exit":
+		if len(os.Args) != 3 {
+			os.Exit(2)
+		}
+		cmd := exec.Command(os.Args[0], "heartbeat", os.Args[2])
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 		if err := cmd.Start(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
