@@ -17,13 +17,15 @@ import (
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/store"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/storeport"
 	_ "modernc.org/sqlite"
 )
 
-type factory func(*testing.T) store.Store
+type factory func(*testing.T) storeport.Store
+type clockedFactory func(*testing.T, store.Clock) storeport.Store
 
 func TestMemoryStoreContract(t *testing.T) {
-	contract(t, func(t *testing.T) store.Store { return store.NewMemory() })
+	contract(t, func(t *testing.T) storeport.Store { return store.NewMemory() })
 }
 
 func TestSQLiteStoreContract(t *testing.T) {
@@ -104,7 +106,7 @@ func TestStoresRejectDuplicateRunWithoutMutation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := s.CreateRun(ctx, domain.Run{ID: original.ID, State: domain.StateStopped, Task: "replacement"}); !errors.Is(err, store.ErrRunAlreadyExists) {
+			if err := s.CreateRun(ctx, domain.Run{ID: original.ID, State: domain.StateStopped, Task: "replacement"}); !errors.Is(err, storeport.ErrRunAlreadyExists) {
 				t.Fatalf("duplicate CreateRun() error = %v", err)
 			}
 			got, err := s.GetRun(ctx, original.ID)
@@ -132,7 +134,7 @@ func TestStoresRejectArtifactsForMissingRuns(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := newStore(t).PutArtifact(context.Background(), domain.Artifact{ID: "artifact-1", RunID: "missing"})
-			if !errors.Is(err, store.ErrRunNotFound) {
+			if !errors.Is(err, storeport.ErrRunNotFound) {
 				t.Fatalf("PutArtifact() missing run error = %v", err)
 			}
 		})
@@ -169,16 +171,16 @@ func TestStoresRejectRequiredIdentifiers(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := newStore(t)
 			ctx := context.Background()
-			if err := s.CreateRun(ctx, domain.Run{ID: ""}); !errors.Is(err, store.ErrEmptyRunID) {
+			if err := s.CreateRun(ctx, domain.Run{ID: ""}); !errors.Is(err, storeport.ErrEmptyRunID) {
 				t.Fatalf("empty run ID error = %v", err)
 			}
 			if err := s.CreateRun(ctx, domain.Run{ID: "run-1"}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := s.AppendEvent(ctx, "run-1", "", nil); !errors.Is(err, store.ErrEmptyEventType) {
+			if _, err := s.AppendEvent(ctx, "run-1", "", nil); !errors.Is(err, storeport.ErrEmptyEventType) {
 				t.Fatalf("empty event type error = %v", err)
 			}
-			if err := s.PutArtifact(ctx, domain.Artifact{RunID: "run-1"}); !errors.Is(err, store.ErrEmptyArtifactID) {
+			if err := s.PutArtifact(ctx, domain.Artifact{RunID: "run-1"}); !errors.Is(err, storeport.ErrEmptyArtifactID) {
 				t.Fatalf("empty artifact ID error = %v", err)
 			}
 		})
@@ -320,7 +322,7 @@ func TestStoresRollbackRunUpdateWhenEventValidationFails(t *testing.T) {
 				t.Fatal(err)
 			}
 			run.State = domain.StatePreflight
-			if _, err := s.UpdateRun(ctx, run, "", json.RawMessage(`{}`)); !errors.Is(err, store.ErrEmptyEventType) {
+			if _, err := s.UpdateRun(ctx, run, "", json.RawMessage(`{}`)); !errors.Is(err, storeport.ErrEmptyEventType) {
 				t.Fatalf("UpdateRun empty event type error = %v", err)
 			}
 			got, err := s.GetRun(ctx, run.ID)
@@ -336,6 +338,110 @@ func TestStoresRollbackRunUpdateWhenEventValidationFails(t *testing.T) {
 			}
 			if len(events) != 0 {
 				t.Fatalf("events after failed update = %#v, want none", events)
+			}
+		})
+	}
+}
+
+func TestStoresHonorAlreadyCancelledContextsWithoutMutation(t *testing.T) {
+	for name, newStore := range map[string]factory{
+		"memory": memoryFactory(),
+		"sqlite": sqliteFactory(t),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			cancelled, cancel := context.WithCancel(context.Background())
+			cancel()
+			initial := domain.Run{ID: "run-1", State: domain.StateCreated, Task: "initial"}
+			if err := s.CreateRun(cancelled, initial); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled CreateRun() error = %v, want context.Canceled", err)
+			}
+			if _, err := s.GetRun(context.Background(), initial.ID); !errors.Is(err, storeport.ErrRunNotFound) {
+				t.Fatalf("run after cancelled CreateRun() error = %v, want ErrRunNotFound", err)
+			}
+
+			ctx := context.Background()
+			if err := s.CreateRun(ctx, initial); err != nil {
+				t.Fatal(err)
+			}
+			first, err := s.AppendEvent(ctx, initial.ID, "RunCreated", json.RawMessage(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			updated := initial
+			updated.State = domain.StatePreflight
+			if _, err := s.UpdateRun(cancelled, updated, "StateChanged", json.RawMessage(`{"state":"PREFLIGHT"}`)); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled UpdateRun() error = %v, want context.Canceled", err)
+			}
+			got, err := s.GetRun(ctx, initial.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != initial {
+				t.Fatalf("run after cancelled UpdateRun() = %#v, want %#v", got, initial)
+			}
+
+			if _, err := s.AppendEvent(cancelled, initial.ID, "ShouldNotRecord", json.RawMessage(`{}`)); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled AppendEvent() error = %v, want context.Canceled", err)
+			}
+			events, err := s.ListEvents(ctx, initial.ID, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 1 || events[0].Hash != first.Hash {
+				t.Fatalf("events after cancelled writes = %#v, want only %#v", events, first)
+			}
+			if _, err := s.GetRun(cancelled, initial.ID); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled GetRun() error = %v, want context.Canceled", err)
+			}
+			if _, err := s.ListEvents(cancelled, initial.ID, 0); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled ListEvents() error = %v, want context.Canceled", err)
+			}
+			if err := s.PutArtifact(cancelled, domain.Artifact{ID: "artifact-1", RunID: initial.ID}); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled PutArtifact() error = %v, want context.Canceled", err)
+			}
+		})
+	}
+}
+
+func TestStoresUseInjectedClockForEventTimestampsAndHashes(t *testing.T) {
+	firstAt := time.Date(2026, time.July, 24, 1, 2, 3, 4, time.FixedZone("UTC+8", 8*60*60))
+	secondAt := time.Date(2026, time.July, 24, 1, 2, 4, 5, time.FixedZone("UTC+8", 8*60*60))
+	thirdAt := time.Date(2026, time.July, 24, 1, 2, 5, 6, time.FixedZone("UTC+8", 8*60*60))
+	for name, newStore := range map[string]clockedFactory{
+		"memory": memoryClockFactory(),
+		"sqlite": sqliteClockFactory(t),
+	} {
+		t.Run(name, func(t *testing.T) {
+			clock := &scriptedClock{times: []time.Time{firstAt, secondAt, thirdAt}}
+			s := newStore(t, clock)
+			ctx := context.Background()
+			run := domain.Run{ID: "run-1", State: domain.StateCreated}
+			if err := s.CreateRun(ctx, run); err != nil {
+				t.Fatal(err)
+			}
+			e1, err := s.AppendEvent(ctx, run.ID, "RunCreated", json.RawMessage(`{"n":1}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			e2, err := s.AppendEvent(ctx, run.ID, "Observed", json.RawMessage(`{"n":2}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			run.State = domain.StatePreflight
+			e3, err := s.UpdateRun(ctx, run, "StateChanged", json.RawMessage(`{"n":3}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantTimes := []time.Time{firstAt.UTC(), secondAt.UTC(), thirdAt.UTC()}
+			for index, event := range []domain.RunEvent{e1, e2, e3} {
+				if !event.At.Equal(wantTimes[index]) {
+					t.Fatalf("event %d At = %s, want %s", index+1, event.At, wantTimes[index])
+				}
+				if event.Hash != canonicalHash(event) {
+					t.Fatalf("event %d hash = %q, want canonical hash %q", index+1, event.Hash, canonicalHash(event))
+				}
 			}
 		})
 	}
@@ -435,7 +541,7 @@ func TestSQLiteStorePersistsAfterReopen(t *testing.T) {
 
 func sqliteFactory(t *testing.T) factory {
 	t.Helper()
-	return func(t *testing.T) store.Store {
+	return func(t *testing.T) storeport.Store {
 		t.Helper()
 		s, err := store.OpenSQLite(filepath.Join(t.TempDir(), "runs.db"))
 		if err != nil {
@@ -447,7 +553,42 @@ func sqliteFactory(t *testing.T) factory {
 }
 
 func memoryFactory() factory {
-	return func(*testing.T) store.Store { return store.NewMemory() }
+	return func(*testing.T) storeport.Store { return store.NewMemory() }
+}
+
+func sqliteClockFactory(t *testing.T) clockedFactory {
+	t.Helper()
+	return func(t *testing.T, clock store.Clock) storeport.Store {
+		t.Helper()
+		s, err := store.OpenSQLiteWithClock(filepath.Join(t.TempDir(), "runs.db"), clock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		return s
+	}
+}
+
+func memoryClockFactory() clockedFactory {
+	return func(_ *testing.T, clock store.Clock) storeport.Store {
+		return store.NewMemoryWithClock(clock)
+	}
+}
+
+type scriptedClock struct {
+	mu    sync.Mutex
+	times []time.Time
+}
+
+func (c *scriptedClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.times) == 0 {
+		panic("scripted clock exhausted")
+	}
+	now := c.times[0]
+	c.times = c.times[1:]
+	return now
 }
 
 func canonicalHash(event domain.RunEvent) string {

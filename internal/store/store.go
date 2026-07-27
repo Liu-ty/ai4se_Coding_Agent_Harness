@@ -7,33 +7,26 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/storeport"
 )
 
-var (
-	ErrEmptyRunID       = errors.New("run ID is required")
-	ErrEmptyEventType   = errors.New("event type is required")
-	ErrEmptyArtifactID  = errors.New("artifact ID is required")
-	ErrRunAlreadyExists = errors.New("run already exists")
-	ErrRunNotFound      = errors.New("run not found")
-)
+// Clock supplies event timestamps at store construction boundaries.
+type Clock interface {
+	Now() time.Time
+}
 
-// Store is the persistence port for a single harness run.
-type Store interface {
-	CreateRun(context.Context, domain.Run) error
-	UpdateRun(context.Context, domain.Run, string, json.RawMessage) (domain.RunEvent, error)
-	AppendEvent(context.Context, domain.RunID, string, json.RawMessage) (domain.RunEvent, error)
-	GetRun(context.Context, domain.RunID) (domain.Run, error)
-	ListEvents(context.Context, domain.RunID, uint64) ([]domain.RunEvent, error)
-	PutArtifact(context.Context, domain.Artifact) error
+type realClock struct{}
+
+func (realClock) Now() time.Time {
+	return time.Now()
 }
 
 func validateRunID(runID domain.RunID) error {
 	if runID == "" {
-		return ErrEmptyRunID
+		return storeport.ErrEmptyRunID
 	}
 	return nil
 }
@@ -43,16 +36,23 @@ func validateEvent(runID domain.RunID, eventType string) error {
 		return err
 	}
 	if eventType == "" {
-		return ErrEmptyEventType
+		return storeport.ErrEmptyEventType
 	}
 	return nil
 }
 
 func validateArtifact(artifact domain.Artifact) error {
 	if artifact.ID == "" {
-		return ErrEmptyArtifactID
+		return storeport.ErrEmptyArtifactID
 	}
 	return validateRunID(artifact.RunID)
+}
+
+func checkContext(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
 }
 
 func newEvent(runID domain.RunID, sequence uint64, eventType string, payload json.RawMessage, previousHash string, at time.Time) domain.RunEvent {

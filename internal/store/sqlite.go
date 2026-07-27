@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/storeport"
 	_ "modernc.org/sqlite"
 )
 
@@ -22,13 +23,22 @@ var initialMigration string
 
 // SQLiteStore persists store records in a local SQLite database.
 type SQLiteStore struct {
-	db *sql.DB
+	db    *sql.DB
+	clock Clock
 }
 
 const zeroTimeMarker int64 = -1 << 63
 
 // OpenSQLite opens a SQLite store and applies the initial schema.
 func OpenSQLite(path string) (*SQLiteStore, error) {
+	return OpenSQLiteWithClock(path, realClock{})
+}
+
+// OpenSQLiteWithClock opens a SQLite store with deterministic event time.
+func OpenSQLiteWithClock(path string, clock Clock) (*SQLiteStore, error) {
+	if clock == nil {
+		panic("store: nil Clock")
+	}
 	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, err
@@ -52,7 +62,7 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply initial migration: %w", err)
 	}
-	return &SQLiteStore{db: db}, nil
+	return &SQLiteStore{db: db, clock: clock}, nil
 }
 
 func sqliteDSN(path string) string {
@@ -76,6 +86,9 @@ func (s *SQLiteStore) CreateRun(ctx context.Context, run domain.Run) error {
 	if err := validateRunID(run.ID); err != nil {
 		return err
 	}
+	if err := checkContext(ctx); err != nil {
+		return err
+	}
 	run = normalizeRun(run)
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO runs (id, state, profile, task, repo_root, current_stage, created_at, updated_at)
@@ -91,13 +104,16 @@ func (s *SQLiteStore) CreateRun(ctx context.Context, run domain.Run) error {
 		return err
 	}
 	if changed == 0 {
-		return ErrRunAlreadyExists
+		return storeport.ErrRunAlreadyExists
 	}
 	return nil
 }
 
 func (s *SQLiteStore) UpdateRun(ctx context.Context, run domain.Run, eventType string, payload json.RawMessage) (event domain.RunEvent, err error) {
 	if err := validateEvent(run.ID, eventType); err != nil {
+		return domain.RunEvent{}, err
+	}
+	if err := checkContext(ctx); err != nil {
 		return domain.RunEvent{}, err
 	}
 	run = normalizeRun(run)
@@ -122,9 +138,9 @@ func (s *SQLiteStore) UpdateRun(ctx context.Context, run domain.Run, eventType s
 		return domain.RunEvent{}, err
 	}
 	if changed == 0 {
-		return domain.RunEvent{}, ErrRunNotFound
+		return domain.RunEvent{}, storeport.ErrRunNotFound
 	}
-	event, err = appendEventTx(ctx, tx, run.ID, eventType, payload)
+	event, err = appendEventTx(ctx, tx, s.clock, run.ID, eventType, payload)
 	if err != nil {
 		return domain.RunEvent{}, err
 	}
@@ -136,6 +152,9 @@ func (s *SQLiteStore) UpdateRun(ctx context.Context, run domain.Run, eventType s
 
 func (s *SQLiteStore) AppendEvent(ctx context.Context, runID domain.RunID, eventType string, payload json.RawMessage) (event domain.RunEvent, err error) {
 	if err := validateEvent(runID, eventType); err != nil {
+		return domain.RunEvent{}, err
+	}
+	if err := checkContext(ctx); err != nil {
 		return domain.RunEvent{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -152,9 +171,9 @@ func (s *SQLiteStore) AppendEvent(ctx context.Context, runID domain.RunID, event
 		return domain.RunEvent{}, err
 	}
 	if !exists {
-		return domain.RunEvent{}, ErrRunNotFound
+		return domain.RunEvent{}, storeport.ErrRunNotFound
 	}
-	event, err = appendEventTx(ctx, tx, runID, eventType, payload)
+	event, err = appendEventTx(ctx, tx, s.clock, runID, eventType, payload)
 	if err != nil {
 		return domain.RunEvent{}, err
 	}
@@ -168,6 +187,9 @@ func (s *SQLiteStore) GetRun(ctx context.Context, runID domain.RunID) (domain.Ru
 	if err := validateRunID(runID); err != nil {
 		return domain.Run{}, err
 	}
+	if err := checkContext(ctx); err != nil {
+		return domain.Run{}, err
+	}
 	var run domain.Run
 	var createdAt, updatedAt int64
 	err := s.db.QueryRowContext(ctx, `
@@ -175,7 +197,7 @@ func (s *SQLiteStore) GetRun(ctx context.Context, runID domain.RunID) (domain.Ru
 		FROM runs WHERE id = ?`, runID).Scan(
 		&run.ID, &run.State, &run.Profile, &run.Task, &run.RepoRoot, &run.CurrentStage, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return domain.Run{}, ErrRunNotFound
+		return domain.Run{}, storeport.ErrRunNotFound
 	}
 	if err != nil {
 		return domain.Run{}, err
@@ -203,12 +225,15 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, runID domain.RunID, fromSe
 	if err := validateRunID(runID); err != nil {
 		return nil, err
 	}
+	if err := checkContext(ctx); err != nil {
+		return nil, err
+	}
 	exists, err := s.runExists(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
 	if !exists {
-		return nil, ErrRunNotFound
+		return nil, storeport.ErrRunNotFound
 	}
 	if fromSequence > math.MaxInt64 {
 		return []domain.RunEvent{}, nil
@@ -242,13 +267,16 @@ func (s *SQLiteStore) PutArtifact(ctx context.Context, artifact domain.Artifact)
 	if err := validateArtifact(artifact); err != nil {
 		return err
 	}
+	if err := checkContext(ctx); err != nil {
+		return err
+	}
 	artifact = cloneArtifact(artifact)
 	exists, err := s.runExists(ctx, artifact.RunID)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		return ErrRunNotFound
+		return storeport.ErrRunNotFound
 	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO artifacts (id, run_id, kind, sha256, content, truncated)
@@ -277,7 +305,7 @@ func runExistsTx(ctx context.Context, tx *sql.Tx, runID domain.RunID) (bool, err
 	return err == nil, err
 }
 
-func appendEventTx(ctx context.Context, tx *sql.Tx, runID domain.RunID, eventType string, payload json.RawMessage) (domain.RunEvent, error) {
+func appendEventTx(ctx context.Context, tx *sql.Tx, clock Clock, runID domain.RunID, eventType string, payload json.RawMessage) (domain.RunEvent, error) {
 	var sequence uint64
 	var previousHash string
 	err := tx.QueryRowContext(ctx, `
@@ -288,7 +316,7 @@ func appendEventTx(ctx context.Context, tx *sql.Tx, runID domain.RunID, eventTyp
 	} else if err != nil {
 		return domain.RunEvent{}, err
 	}
-	event := newEvent(runID, sequence+1, eventType, payload, previousHash, time.Now())
+	event := newEvent(runID, sequence+1, eventType, payload, previousHash, clock.Now())
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO run_events (run_id, sequence, type, at, payload, previous_hash, hash)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,

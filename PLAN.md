@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Paused after Task 4 as requested. Foundation PR is merged at `6cad5d1`; Tasks 1–4 have implementation commits and fresh reviews. The deferred Task 3 architecture gate below remains open and must be completed after resumption before the `config-store-budget` PR is declared ready or Task 5 begins.
+**Status:** Post-Task-4 integration gate is complete in the working tree. Foundation PR is merged at `6cad5d1`; Tasks 1–4 have implementation commits and fresh reviews. The `config-store-budget` branch may proceed to publication after this gate commit; Task 5 remains the next implementation task.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -63,7 +63,8 @@ Each numbered task is executed by a fresh subagent even when two sequential task
 cmd/ai4se-harness/             CLI and local/demo composition roots
 internal/domain/               Stable entities, enums, state transitions, port types
 internal/config/               Strict versioned TOML and platform command resolution
-internal/store/                Memory and SQLite run/event/artifact stores
+internal/storeport/            Store persistence port and shared store errors
+internal/store/                Memory and SQLite run/event/artifact adapters
 internal/budget/               Decision/mutation/time budgets and progress detection
 internal/policy/               Risk classification, profiles, approval digests
 internal/workspace/            Canonical paths, protected files, Git baseline
@@ -400,21 +401,23 @@ Before changing production code, add focused tests proving that omitted budget k
 
 **Files:**
 - Create: `internal/domain/events.go`
+- Create: `internal/storeport/store.go`
 - Create: `internal/store/store.go`
 - Create: `internal/store/memory.go`
 - Create: `internal/store/sqlite.go`
 - Create: `internal/store/migrations/001_init.sql`
 - Test: `internal/store/store_test.go`
+- Test: `internal/storeport/storeport_test.go`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**
 - Consumes: `domain.Run`, `domain.RunEvent`, `domain.Artifact`.
-- Produces: `store.Store` with `CreateRun`, `AppendEvent`, `GetRun`, `ListEvents`, and `PutArtifact`; memory and SQLite implementations must pass one contract suite.
+- Produces: `storeport.Store` with `CreateRun`, `AppendEvent`, `GetRun`, `ListEvents`, and `PutArtifact`; memory and SQLite implementations must pass one contract suite.
 
 - [x] **Step 1: Write a store contract that fails for both implementations**
 
 ```go
-type factory func(t *testing.T) store.Store
+type factory func(t *testing.T) storeport.Store
 func contract(t *testing.T, newStore factory) {
     s := newStore(t)
     run := domain.Run{ID:"run-1", State:domain.StateCreated}
@@ -462,7 +465,7 @@ Run: `go test ./internal/store -v`
 Expected: PASS for memory, SQLite, concurrent sequence allocation, rollback-on-event-failure, and reopen persistence.
 
 ```powershell
-git add internal/domain/events.go internal/store AGENT_LOG.md go.mod go.sum
+git add internal/domain/events.go internal/storeport internal/store AGENT_LOG.md go.mod go.sum
 git commit -m "feat: persist hash-chained run events"
 ```
 
@@ -565,11 +568,11 @@ Give the Task 4 alignment diff first to a fresh SPEC-compliance reviewer and the
 
 This gate records confirmed SPEC §6.1 and backend-contract defects found by the final Tasks 2–4 branch review. It is intentionally deferred until the student resumes work. The branch is not PR-ready until these items pass TDD and two fresh reviews:
 
-- [ ] Move the `Store` port out of the concrete SQLite adapter package so core consumers can depend on the port without compiling or initializing SQLite; update the planned file structure and imports without changing observable store semantics.
-- [ ] Add shared contract tests for already-cancelled contexts and make the memory and SQLite implementations return compatible cancellation errors without mutation.
-- [ ] Inject a clock into memory and SQLite event creation at composition/construction boundaries; add deterministic timestamp and hash-chain tests that never call the real clock.
-- [ ] Run `go mod tidy` and verify `modernc.org/sqlite` is a direct dependency, then rerun the full Windows and Linux amd64 gates.
-- [ ] Complete fresh SPEC-compliance and code-quality reviews before publishing the `config-store-budget` PR.
+- [x] Move the `Store` port out of the concrete SQLite adapter package so core consumers can depend on the port without compiling or initializing SQLite; update the planned file structure and imports without changing observable store semantics.
+- [x] Add shared contract tests for already-cancelled contexts and make the memory and SQLite implementations return compatible cancellation errors without mutation.
+- [x] Inject a clock into memory and SQLite event creation at composition/construction boundaries; add deterministic timestamp and hash-chain tests that never call the real clock.
+- [x] Run `go mod tidy` and verify `modernc.org/sqlite` is a direct dependency, then rerun the full Windows and Linux amd64 gates.
+- [x] Complete fresh SPEC-compliance and code-quality reviews before publishing the `config-store-budget` PR.
 
 **Pause rule:** after Task 4 Step 8 is complete, stop. Resume with this gate before Task 5 or branch publication.
 
@@ -1218,7 +1221,7 @@ Check canonical Git root, Git executable, baseline commit/diff, config, platform
 type CreateRunRequest struct { RepoRoot, Task, Provider, Model, Endpoint string; Profile domain.PermissionProfile; ConfigPath string }
 type PreflightReport struct { OK bool; Findings []Finding; BaselineCommit, BaselineDiffHash string }
 type LoopController interface { Start(context.Context, domain.Run) error; Approve(context.Context, domain.RunID, string) error; Reject(context.Context, domain.RunID, string, bool) error; Cancel(context.Context, domain.RunID) error }
-type Service struct { store store.Store; locks *RepoLocks; loops LoopController; creds *credentials.Service }
+type Service struct { store storeport.Store; locks *RepoLocks; loops LoopController; creds *credentials.Service }
 func (s *Service) Preflight(context.Context, CreateRunRequest) PreflightReport
 func (s *Service) CreateRun(context.Context, CreateRunRequest) (domain.Run, error)
 func (s *Service) Approve(context.Context, domain.RunID, string) error
