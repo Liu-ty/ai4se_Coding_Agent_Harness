@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Post-Task-4 integration gate is complete in the working tree. Foundation PR is merged at `6cad5d1`; Tasks 1–4 have implementation commits and fresh reviews. The `config-store-budget` branch may proceed to publication after this gate commit; Task 5 remains the next implementation task.
+**Status:** Foundation PR #1 is merged at `6cad5d1`, and the `config-store-budget` PR #2 is merged into `main` at `712f257`. Tasks 1-4 are complete on `main`; Task 5 remains the next implementation task.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -566,7 +566,7 @@ Give the Task 4 alignment diff first to a fresh SPEC-compliance reviewer and the
 
 ## Post-Task-4 Pause and Deferred `config-store-budget` Integration Gate
 
-This gate records confirmed SPEC §6.1 and backend-contract defects found by the final Tasks 2–4 branch review. It is intentionally deferred until the student resumes work. The branch is not PR-ready until these items pass TDD and two fresh reviews:
+This gate records confirmed SPEC §6.1 and backend-contract defects found by the final Tasks 2-4 branch review. It was intentionally deferred until the student resumed work, then completed before PR #2 publication and merge:
 
 - [x] Move the `Store` port out of the concrete SQLite adapter package so core consumers can depend on the port without compiling or initializing SQLite; update the planned file structure and imports without changing observable store semantics.
 - [x] Add shared contract tests for already-cancelled contexts and make the memory and SQLite implementations return compatible cancellation errors without mutation.
@@ -574,11 +574,11 @@ This gate records confirmed SPEC §6.1 and backend-contract defects found by the
 - [x] Run `go mod tidy` and verify `modernc.org/sqlite` is a direct dependency, then rerun the full Windows and Linux amd64 gates.
 - [x] Complete fresh SPEC-compliance and code-quality reviews before publishing the `config-store-budget` PR.
 
-**Pause rule:** after Task 4 Step 8 is complete, stop. Resume with this gate before Task 5 or branch publication.
+**Gate result:** satisfied and merged through PR #2 at `712f257`; Task 5 may start from updated `main`.
 
 ---
 
-### Task 5: Policy Engine, Permission Profiles, and Exact Approvals
+### Task 5: Policy Engine, Permission Profiles, and Exact Approvals - complete (`fa57720`, review fixes `cf0f505`, `730a9b2`, `933ce1c`)
 
 **Files:**
 - Create: `internal/policy/policy.go`
@@ -591,7 +591,7 @@ This gate records confirmed SPEC §6.1 and backend-contract defects found by the
 - Consumes: `domain.Action`, run/profile/baselines, workspace risk facts.
 - Produces: `policy.Engine.Evaluate(Context, Action) Decision`, `policy.ApprovalDigest`, and one-use `ApprovalStore`.
 
-- [ ] **Step 1: Write the failing profile matrix and digest tests**
+- [x] **Step 1: Write the failing profile matrix and digest tests**
 
 ```go
 func TestPatchProfileMatrix(t *testing.T) {
@@ -613,12 +613,12 @@ func TestApprovalDigestChangesWithBaseline(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/policy -v`  
 Expected: FAIL because policy types are missing.
 
-- [ ] **Step 3: Implement risk-first policy evaluation**
+- [x] **Step 3: Implement risk-first policy evaluation**
 
 ```go
 type Verdict string
@@ -633,11 +633,11 @@ func (Engine) Evaluate(Context, domain.Action) Decision
 
 Hard-deny unknown/raw-shell/network/credential/repository-escape facts before applying profile mappings. Guard large/protected/dirty-worktree mutations. A review-mode patch is denied but its redacted request can later be saved as a proposal artifact.
 
-- [ ] **Step 4: Implement one-use approval consumption**
+- [x] **Step 4: Implement one-use approval consumption**
 
 `ApprovalStore.Grant(digest)` records one digest; `Consume(digest)` succeeds exactly once. A changed action/profile/baseline produces a new digest and cannot consume the old grant.
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/policy -v`  
 Expected: PASS for profile matrix, hard denials, guarded limits, dirty workspace, digest binding, one-use consumption, and repository config unable to loosen policy.
@@ -649,7 +649,7 @@ git commit -m "feat: add selectable policy profiles and approvals"
 
 ---
 
-### Task 6: Canonical Workspace and Read-Only Tools
+### Task 6: Canonical Workspace and Read-Only Tools - complete (`39e024e`, review fixes `e6c3c47`, `1c6920a`)
 
 **Files:**
 - Create: `internal/workspace/path.go`
@@ -667,7 +667,7 @@ git commit -m "feat: add selectable policy profiles and approvals"
 - Consumes: repository root and typed action arguments.
 - Produces: `tools.Tool`, `tools.Registry`, `workspace.Resolve`, `workspace.GitBaseline`, list/search/read observations with SHA-256, and a shared temporary-Git-repository test helper.
 
-- [ ] **Step 1: Write path-escape, symlink, binary, and truncation tests**
+- [x] **Step 1: Write path-escape, symlink, binary, and truncation tests**
 
 ```go
 func TestResolveRejectsParentEscape(t *testing.T) {
@@ -681,16 +681,16 @@ func TestReadReturnsHashAndTruncation(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/workspace ./internal/tools -v`  
 Expected: FAIL because packages are missing.
 
-- [ ] **Step 3: Implement canonical path resolution**
+- [x] **Step 3: Implement canonical path resolution**
 
 Resolve the root with `filepath.EvalSymlinks`, join/clean the relative path, resolve the nearest existing parent for new paths, and compare with `filepath.Rel`. Reject absolute inputs, `..` escape, `.git`, protected secret globs, and symlinks whose resolved target leaves the root.
 
-- [ ] **Step 4: Implement tool contract and registry**
+- [x] **Step 4: Implement tool contract and registry**
 
 ```go
 type Result struct { Code string; Data json.RawMessage; Text, SHA256 string; Truncated bool }
@@ -704,7 +704,7 @@ Implement list with bounded `filepath.WalkDir`, search with Go regular expressio
 
 Implement `testrepo.New(t, files)` under `internal/testutil/testrepo`: create the files, run `git init`, configure a test-only name/email locally, add, and commit. Provide `Root`, `Read`, and `Write` helpers used by later tool/app integration tests.
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/workspace ./internal/tools -v`  
 Expected: PASS for escape, symlink, `.git`, protected files, binary, stable ordering, result limits, invalid regex, hash, and truncation.
@@ -716,7 +716,7 @@ git commit -m "feat: add bounded repository read tools"
 
 ---
 
-### Task 7: Safe Patch and File-Creation Tools
+### Task 7: Safe Patch and File-Creation Tools - complete (`c4ffddd`, review fix `bbffdeb`)
 
 **Files:**
 - Create: `internal/tools/patch.go`
@@ -730,7 +730,7 @@ git commit -m "feat: add bounded repository read tools"
 - Consumes: `workspace.Resolve`, baseline SHA-256 map, policy limits, installed Git executable.
 - Produces: `apply_patch` and `create_file` tools returning changed paths and diff digests; no partial mutation on failure.
 
-- [ ] **Step 1: Write failing stale-baseline, conflict, protected-path, atomicity, and no-overwrite tests**
+- [x] **Step 1: Write failing stale-baseline, conflict, protected-path, atomicity, and no-overwrite tests**
 
 ```go
 func TestPatchRejectsStaleBaselineWithoutMutation(t *testing.T) {
@@ -748,22 +748,22 @@ func TestCreateNeverOverwrites(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/tools -run 'TestPatch|TestCreate' -v`  
 Expected: FAIL because patch/create tools do not exist.
 
-- [ ] **Step 3: Implement deterministic patch-header parsing and validation**
+- [x] **Step 3: Implement deterministic patch-header parsing and validation**
 
 Parse only unified-diff file headers and hunks. Reject rename, delete, binary patch, absolute paths, `/dev/null` for existing-file patching, duplicate paths, more than five files, and more than 500 added/deleted lines. Resolve every path through `workspace.Resolve` and compare every supplied baseline hash before invoking Git.
 
-- [ ] **Step 4: Implement all-or-nothing Git apply and create**
+- [x] **Step 4: Implement all-or-nothing Git apply and create**
 
 Run `git apply --check --whitespace=nowarn -` with patch bytes on stdin; only on success run `git apply --whitespace=nowarn -` without `--reject`. Recheck all baselines immediately before the real apply. Git’s non-reject path must leave all targets unchanged on failure; verify this against captured hashes and escalate any unexpected mutation as `PATCH_ATOMICITY_BREACH` without running reset/clean. Return a sorted path list plus SHA-256 of the resulting `git diff --binary` output.
 
 `create_file` opens the target directly with `O_CREATE|O_EXCL`, writes, fsyncs, and closes after policy and size checks. On write/sync failure it removes the newly created path; it never overwrites an existing path.
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/tools -run 'TestPatch|TestCreate' -v`  
 Expected: PASS for clean apply, conflict, stale baseline, atomic injected failure, delete/rename/binary rejection, protected path, limits, and no overwrite.

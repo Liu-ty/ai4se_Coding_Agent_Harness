@@ -287,4 +287,71 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Red evidence:** Added `TestSQLiteDSNNormalizesRelativePaths` before changing `sqliteDSN`; it failed because `sqliteDSN("state/runs.db")` produced `file://state/runs.db?...` with host `state`.
 - **Implementation:** Replaced SQLite setup and trigger calls with context-aware database methods; normalized relative SQLite paths to absolute file URIs while preserving DSN pragmas; propagated `ListEvents` `rows.Close` errors; replaced deprecated TOML decoding; documented the single-connection hash-chain dependency and lock-free `CheckTime` invariant; reconciled `SPEC_PROCESS.md` with the completed deferred gate in `PLAN.md`.
 - **Verification:** Focused config/budget/store tests, full `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 `go build ./...`, and Linux amd64 test-binary compilation all exited 0. The Go tool still printed the pre-existing telemetry upload-token warning on this Windows machine.
-- **GitHub writes:** No review-thread replies, resolutions, or comments were posted; only the branch code will be updated after local verification.
+- **GitHub writes:** No review-thread replies, resolutions, or comments were posted; only the branch code was updated after local verification.
+
+## 2026-07-27 - PR #2 Merge and Workspace Sync
+
+- **Task:** PR-2-MERGE-SYNC-001.
+- **Skills:** `superpowers:receiving-code-review`, `superpowers:verification-before-completion`, `github:gh-address-comments`.
+- **GitHub status:** PR #2 (`Config store budget`) is merged into `main` with merge commit `712f25732fda184272faa835d76343f568a3fd07`. The PR head was `c43215de93d635678b7691d2de886e14da1e801e`.
+- **Review status:** The five original CodeRabbit inline threads were resolved by CodeRabbit after commit `c43215d`. The follow-up CodeRabbit run for the last seven changed files was not performed because the PR review limit was reached; the bot reported the next review window would reopen later rather than posting new actionable findings.
+- **Workspace sync:** Fetched `origin/main` and `origin/config-store-budget`, fast-forwarded local `main` to `origin/main`, and fast-forwarded the `F:\codes\ai4se-cold-start` `config-store-budget` worktree from `b391b92` to `c43215d`.
+- **Next step:** Task 5 should start from updated `main`, not from the already-merged `config-store-budget` branch.
+
+## 2026-07-27 - Task 5: Policy Engine, Permission Profiles, and Exact Approvals
+
+- **Task:** Task 5 implementation only.
+- **Skills:** `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added `internal/policy/policy_test.go` before production files. With workspace-local Go caches, `go test ./internal/policy -v` failed as expected because `internal/policy` had no non-test Go files. A first invocation was blocked before compilation by the host Go build-cache permissions and was rerun with the workspace cache.
+- **Green evidence:** `go test ./internal/policy -v` passed the profile matrix, hard denials, guarded mutation, dirty-worktree, SHA-256 digest binding, one-use approval, and repository-override tests. The common pre-Task-16 gate `go test ./... -count=1` and `git diff --check` passed.
+- **Implementation:** Added a closed course-delivery action registry; risk-first hard denials for unknown actions, escape, `.git`, credential, binary, and unsafe facts; guarded normal limits and protected paths; review/supervised/workspace-auto mappings; deterministic sorted-baseline SHA-256 approval digests; and a mutex-protected, one-use `ApprovalStore` that also supports its zero value.
+- **Self-review:** Confirmed policy has no repository configuration input that could loosen user-level decisions, approval grants bind run/profile/action/baselines, denied decisions contain no action arguments, and Task 6 workspace/tool execution was not started.
+- **Concern:** The full Go gate initially timed out during dependency download to the workspace-local cache. It completed successfully after approved network/cache access; no dependencies were changed. The requested `git add`/`git commit` was blocked because the sandbox denied creation of `.git/index.lock`; the working tree remains cleanly modified for the controller to stage and commit.
+
+## 2026-07-27 - Task 5 Independent Review and Closure
+
+- **Task:** TASK-5-REVIEW-001.
+- **Skills:** `superpowers:subagent-driven-development`, `superpowers:receiving-code-review`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Implementation commits:** `fa57720` added the initial policy engine and one-use approval store; `cf0f505` hardened `.git`, configured-check, key/endpoint-mismatch, and payload-derived limit handling; `730a9b2` required canonical mutation payloads; `933ce1c` rejected non-string `create_file` content.
+- **Review loop:** The task reviewer found bypasses for dot-segment `.git` paths, arbitrary `run_check` command payloads, missing key/endpoint-mismatch hard denial, and mutation schema trust. Three scoped re-reviews verified each fix round; the final re-review returned all findings addressed with no new Critical or Important breakage.
+- **Verification:** Controller-side focused policy tests, full `go test ./... -count=1` using workspace-local Go caches, and `git diff --check` passed after the final fix.
+- **Human intervention:** None beyond approval for Git branch, staging, and commit operations blocked by the sandbox's `.git` write restrictions.
+- **Lesson:** Policy code must validate canonical action payload shape itself; treating caller-supplied risk metadata as trusted creates the exact bypasses the policy layer is meant to prevent.
+
+## 2026-07-27 - Task 6: Canonical Workspace and Read-Only Tools
+
+- **Task:** Task 6 implementation.
+- **Skills:** `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added workspace and tools tests before production code. With workspace-local Go caches, `go test ./internal/workspace ./internal/tools -v` failed as expected because both packages had no non-test Go files.
+- **Implementation:** Added canonical workspace resolution with repository-escape, `.git`, protected-secret, and symlink-escape denial; read-only list/search/read tools with bounded deterministic results, UTF-8/binary checks, truncation, and SHA-256 content hashes; dispatch registry; Git baseline reads; and a temporary committed-repository test helper limited to test code.
+- **Green evidence:** The focused workspace/tools suite passed after the minimum implementation. Full verification and commit status are recorded in the Task 6 report.
+- **Self-review:** Traversal skips Git internals and symlink entries, search reads only enumerated canonical workspace files, and production tool registration exposes no Git write, raw-shell, network, credential, patch, or create action.
+
+## 2026-07-27 - Task 6 Independent Review and Closure
+
+- **Task:** TASK-6-REVIEW-001.
+- **Skills:** `superpowers:subagent-driven-development`, `superpowers:receiving-code-review`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Implementation commits:** `39e024e` added workspace path resolution, read-only tools, registry, Git baseline reads, and the testrepo helper; `e6c3c47` bounded list traversal and made truncation UTF-8 safe; `1c6920a` preserved deterministic global ordering for bounded list results.
+- **Review loop:** The task reviewer found two Important issues: output-only list bounds and byte-level UTF-8 truncation. The first scoped re-review verified those fixes and the Windows symlink-test improvement, then caught a new deterministic-ordering regression. The second scoped re-review returned all findings addressed with no new Critical or Important breakage.
+- **Verification:** Controller-side focused `go test ./internal/workspace ./internal/tools -v`, full `go test ./... -count=1`, `gofmt -l internal`, and `git diff --check` passed after the final fix. Windows symlink and chmod traversal tests skipped only for host privilege/ACL limitations.
+- **Human intervention:** None beyond approval for Git staging and commit operations blocked by sandbox `.git` write restrictions.
+- **Lesson:** Bounded filesystem traversal still needs a clear ordering invariant; stopping early before proving the sorted prefix trades one resource bug for a correctness bug.
+
+## 2026-07-27 - Task 7: Safe Patch and File-Creation Tools
+
+- **Task:** Task 7 implementation.
+- **Skills:** `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Red evidence:** Added patch/create tests before production code. The requested focused command first hit the host Go build-cache ACL; with workspace-local Go caches it then failed as expected on missing `NewPatchTool`, `PatchLimits`, `NewCreateTool`, and Task 7 sentinels.
+- **Implementation:** Added bounded unified-diff header/hunk validation, workspace-resolved target checks, stale SHA-256 baseline checks before Git, all-or-nothing `git apply` with an atomicity hash guard, deterministic changed-path output and binary-diff digest. Added exclusive create/write/fsync/close behavior with cleanup on failure and no overwrite.
+- **Green evidence:** `go test ./internal/tools -run 'TestPatch|TestCreate' -v` passed clean apply, conflict, stale baseline, injected atomicity breach, unsafe patch forms, limits, protected paths, and no-overwrite coverage. Full gate and commit status are recorded in the Task 7 report.
+- **Self-review:** No executor or validation work was added; production mutation remains limited to the Task 7 tool implementations and uses no reset, clean, revert, shell-action, network, or credential access path.
+
+## 2026-07-27 - Task 7 Independent Review and Closure
+
+- **Task:** TASK-7-REVIEW-001.
+- **Skills:** `superpowers:subagent-driven-development`, `superpowers:receiving-code-review`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Implementation commits:** `c4ffddd` added safe patch and create-file tools; `bbffdeb` fixed hunk parsing so header-like payload lines are not misread as file headers.
+- **Review loop:** The task reviewer found one Important parser issue: valid hunk payload lines beginning `--- ` or `+++ ` could be rejected as structural headers. A scoped re-review verified the fix and found no new Critical or Important breakage.
+- **Verification:** Controller-side `go test ./internal/tools -run 'TestPatch|TestCreate' -v`, full `go test ./... -count=1`, `gofmt -l internal`, and `git diff --check` passed after the final fix.
+- **Human intervention:** None beyond approval for Git staging and commit operations blocked by sandbox `.git` write restrictions.
+- **Lesson:** Unified diff parsers must honor hunk line counts before interpreting header-looking text; patch payload can contain strings that look like file headers.
