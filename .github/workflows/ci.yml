@@ -20,10 +20,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -40,3 +40,30 @@ jobs:
       - name: Run race tests
         if: runner.os == 'Linux'
         run: go test -race ./... -count=1
+
+  unsupported-platform:
+    name: Reject unsupported ${{ matrix.goos }}/amd64
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos:
+          - darwin
+          - freebsd
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Compile unsupported-platform rejection tests
+        env:
+          CGO_ENABLED: "0"
+          GOARCH: amd64
+          GOOS: ${{ matrix.goos }}
+        run: go test -c ./internal/executor -o "${RUNNER_TEMP}/executor-${{ matrix.goos }}.test"
