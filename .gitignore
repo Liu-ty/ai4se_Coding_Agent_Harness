@@ -10,3 +10,5 @@ web/dist/
 internal/httpapi/webdist/
 dist/
 coverage/
+.codex-go-cache/
+.codex-go-modcache/
