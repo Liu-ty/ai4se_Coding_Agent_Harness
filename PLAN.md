@@ -649,7 +649,7 @@ git commit -m "feat: add selectable policy profiles and approvals"
 
 ---
 
-### Task 6: Canonical Workspace and Read-Only Tools
+### Task 6: Canonical Workspace and Read-Only Tools - complete (`39e024e`, review fixes `e6c3c47`, `1c6920a`)
 
 **Files:**
 - Create: `internal/workspace/path.go`
@@ -667,7 +667,7 @@ git commit -m "feat: add selectable policy profiles and approvals"
 - Consumes: repository root and typed action arguments.
 - Produces: `tools.Tool`, `tools.Registry`, `workspace.Resolve`, `workspace.GitBaseline`, list/search/read observations with SHA-256, and a shared temporary-Git-repository test helper.
 
-- [ ] **Step 1: Write path-escape, symlink, binary, and truncation tests**
+- [x] **Step 1: Write path-escape, symlink, binary, and truncation tests**
 
 ```go
 func TestResolveRejectsParentEscape(t *testing.T) {
@@ -681,16 +681,16 @@ func TestReadReturnsHashAndTruncation(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/workspace ./internal/tools -v`  
 Expected: FAIL because packages are missing.
 
-- [ ] **Step 3: Implement canonical path resolution**
+- [x] **Step 3: Implement canonical path resolution**
 
 Resolve the root with `filepath.EvalSymlinks`, join/clean the relative path, resolve the nearest existing parent for new paths, and compare with `filepath.Rel`. Reject absolute inputs, `..` escape, `.git`, protected secret globs, and symlinks whose resolved target leaves the root.
 
-- [ ] **Step 4: Implement tool contract and registry**
+- [x] **Step 4: Implement tool contract and registry**
 
 ```go
 type Result struct { Code string; Data json.RawMessage; Text, SHA256 string; Truncated bool }
@@ -704,7 +704,7 @@ Implement list with bounded `filepath.WalkDir`, search with Go regular expressio
 
 Implement `testrepo.New(t, files)` under `internal/testutil/testrepo`: create the files, run `git init`, configure a test-only name/email locally, add, and commit. Provide `Root`, `Read`, and `Write` helpers used by later tool/app integration tests.
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/workspace ./internal/tools -v`  
 Expected: PASS for escape, symlink, `.git`, protected files, binary, stable ordering, result limits, invalid regex, hash, and truncation.

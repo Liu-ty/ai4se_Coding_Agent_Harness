@@ -326,3 +326,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Implementation:** Added canonical workspace resolution with repository-escape, `.git`, protected-secret, and symlink-escape denial; read-only list/search/read tools with bounded deterministic results, UTF-8/binary checks, truncation, and SHA-256 content hashes; dispatch registry; Git baseline reads; and a temporary committed-repository test helper limited to test code.
 - **Green evidence:** The focused workspace/tools suite passed after the minimum implementation. Full verification and commit status are recorded in the Task 6 report.
 - **Self-review:** Traversal skips Git internals and symlink entries, search reads only enumerated canonical workspace files, and production tool registration exposes no Git write, raw-shell, network, credential, patch, or create action.
+
+## 2026-07-27 - Task 6 Independent Review and Closure
+
+- **Task:** TASK-6-REVIEW-001.
+- **Skills:** `superpowers:subagent-driven-development`, `superpowers:receiving-code-review`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Implementation commits:** `39e024e` added workspace path resolution, read-only tools, registry, Git baseline reads, and the testrepo helper; `e6c3c47` bounded list traversal and made truncation UTF-8 safe; `1c6920a` preserved deterministic global ordering for bounded list results.
+- **Review loop:** The task reviewer found two Important issues: output-only list bounds and byte-level UTF-8 truncation. The first scoped re-review verified those fixes and the Windows symlink-test improvement, then caught a new deterministic-ordering regression. The second scoped re-review returned all findings addressed with no new Critical or Important breakage.
+- **Verification:** Controller-side focused `go test ./internal/workspace ./internal/tools -v`, full `go test ./... -count=1`, `gofmt -l internal`, and `git diff --check` passed after the final fix. Windows symlink and chmod traversal tests skipped only for host privilege/ACL limitations.
+- **Human intervention:** None beyond approval for Git staging and commit operations blocked by sandbox `.git` write restrictions.
+- **Lesson:** Bounded filesystem traversal still needs a clear ordering invariant; stopping early before proving the sorted prefix trades one resource bug for a correctness bug.
