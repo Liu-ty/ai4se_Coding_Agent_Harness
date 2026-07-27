@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,8 +12,6 @@ import (
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/workspace"
 )
-
-var errResultLimit = errors.New("result limit reached")
 
 type listTool struct {
 	root  string
@@ -99,6 +96,13 @@ func (t searchTool) Execute(ctx context.Context, raw json.RawMessage) (Result, e
 }
 
 func walkFiles(ctx context.Context, root string, limit int) ([]string, bool, error) {
+	if limit >= 0 {
+		return boundedFiles(ctx, root, limit)
+	}
+	return walkAllFiles(ctx, root)
+}
+
+func walkAllFiles(ctx context.Context, root string) ([]string, bool, error) {
 	root, err := workspace.ResolveRoot(root)
 	if err != nil {
 		return nil, false, err
@@ -129,19 +133,89 @@ func walkFiles(ctx context.Context, root string, limit int) ([]string, bool, err
 			return nil
 		}
 		paths = append(paths, rel)
-		if limit >= 0 && len(paths) > limit {
-			return errResultLimit
-		}
 		return nil
 	})
-	if errors.Is(err, errResultLimit) {
-		return paths[:limit], true, nil
-	}
 	if err != nil {
 		return nil, false, err
 	}
 	sort.Strings(paths)
 	return paths, false, nil
+}
+
+type pendingPath struct {
+	rel   string
+	isDir bool
+}
+
+// boundedFiles expands only the lexically earliest directory prefix needed to
+// identify the requested sorted file prefix plus one additional result.
+func boundedFiles(ctx context.Context, root string, limit int) ([]string, bool, error) {
+	root, err := workspace.ResolveRoot(root)
+	if err != nil {
+		return nil, false, err
+	}
+	pending, err := readDirectory(root, "")
+	if err != nil {
+		return nil, false, err
+	}
+	paths := make([]string, 0, limit+1)
+	for len(pending) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		sort.Slice(pending, func(i, j int) bool { return pending[i].rel < pending[j].rel })
+		next := pending[0]
+		pending = pending[1:]
+		if next.isDir {
+			if next.rel == ".git/" || strings.HasPrefix(next.rel, ".git/") {
+				continue
+			}
+			if _, err := workspace.Resolve(root, strings.TrimSuffix(next.rel, "/")); err != nil {
+				continue
+			}
+			children, err := readDirectory(root, strings.TrimSuffix(next.rel, "/"))
+			if err != nil {
+				return nil, false, err
+			}
+			pending = append(pending, children...)
+			continue
+		}
+		if _, err := workspace.Resolve(root, next.rel); err != nil {
+			continue
+		}
+		paths = append(paths, next.rel)
+		if len(paths) > limit {
+			return paths[:limit], true, nil
+		}
+	}
+	return paths, false, nil
+}
+
+func readDirectory(root, relative string) ([]pendingPath, error) {
+	directory := root
+	if relative != "" {
+		directory = filepath.Join(root, filepath.FromSlash(relative))
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+	pending := make([]pendingPath, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		rel := entry.Name()
+		if relative != "" {
+			rel = relative + "/" + rel
+		}
+		if entry.IsDir() {
+			pending = append(pending, pendingPath{rel: rel + "/", isDir: true})
+		} else {
+			pending = append(pending, pendingPath{rel: rel})
+		}
+	}
+	return pending, nil
 }
 
 func validEmptyObject(raw json.RawMessage) bool {

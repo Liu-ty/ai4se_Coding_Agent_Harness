@@ -75,6 +75,27 @@ func TestListAndSearchAreBoundedAndSorted(t *testing.T) {
 	}
 }
 
+func TestListReturnsGloballySortedPrefixForNestedPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "a"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{"a/z.txt": "nested", "a.txt": "top-level"} {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(name)), []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := tools.NewListTool(root, 1).Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil || !got.Truncated {
+		t.Fatalf("%#v %v", got, err)
+	}
+	var paths []string
+	if err := json.Unmarshal(got.Data, &paths); err != nil || len(paths) != 1 || paths[0] != "a.txt" {
+		t.Fatalf("paths = %q, %v", paths, err)
+	}
+}
+
 func TestListStopsBeforeUnreadableLaterDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows ACLs, not chmod bits, control directory traversal")
