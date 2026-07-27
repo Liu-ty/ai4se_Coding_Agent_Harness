@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -15,17 +16,31 @@ func parsePatchHeaders(patch string, limits PatchLimits) (patchHeaders, error) {
 		return patchHeaders{}, ErrInvalidPatch
 	}
 	limits = boundedPatchLimits(limits)
-	lines := strings.Split(patch, "\n")
 	seen := make(map[string]struct{})
 	result := patchHeaders{}
 	var oldPath string
-	var hunks []bool
-	for _, line := range lines {
+	currentHasHunk := false
+	inHunk, oldRemaining, newRemaining := false, 0, 0
+
+	for _, line := range strings.Split(patch, "\n") {
+		if inHunk {
+			changed, err := consumeHunkLine(line, &oldRemaining, &newRemaining)
+			if err != nil {
+				return patchHeaders{}, err
+			}
+			result.changedLines += changed
+			if result.changedLines > limits.MaxChangedLines {
+				return patchHeaders{}, ErrPatchLimit
+			}
+			inHunk = oldRemaining != 0 || newRemaining != 0
+			continue
+		}
+
 		switch {
 		case strings.HasPrefix(line, "rename from "), strings.HasPrefix(line, "rename to "), strings.HasPrefix(line, "similarity index "):
 			return patchHeaders{}, ErrInvalidPatch
 		case strings.HasPrefix(line, "--- "):
-			if oldPath != "" || (len(hunks) > 0 && !hunks[len(hunks)-1]) {
+			if oldPath != "" || (len(result.paths) > 0 && !currentHasHunk) {
 				return patchHeaders{}, ErrInvalidPatch
 			}
 			path, err := patchPath(line[4:], "a/")
@@ -46,26 +61,90 @@ func parsePatchHeaders(patch string, limits PatchLimits) (patchHeaders, error) {
 			}
 			seen[path] = struct{}{}
 			result.paths = append(result.paths, path)
-			hunks = append(hunks, false)
-			oldPath = ""
+			if len(result.paths) > limits.MaxFiles {
+				return patchHeaders{}, ErrPatchLimit
+			}
+			oldPath, currentHasHunk = "", false
 		case strings.HasPrefix(line, "@@ "):
 			if len(result.paths) == 0 || oldPath != "" {
 				return patchHeaders{}, ErrInvalidPatch
 			}
-			hunks[len(hunks)-1] = true
-		case strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-"):
-			if len(result.paths) > 0 && oldPath == "" && hunks[len(hunks)-1] {
-				result.changedLines++
+			var err error
+			oldRemaining, newRemaining, err = parseHunkHeader(line)
+			if err != nil {
+				return patchHeaders{}, err
 			}
-		}
-		if len(result.paths) > limits.MaxFiles || result.changedLines > limits.MaxChangedLines {
-			return patchHeaders{}, ErrPatchLimit
+			currentHasHunk = true
+			inHunk = oldRemaining != 0 || newRemaining != 0
 		}
 	}
-	if len(result.paths) == 0 || oldPath != "" || !hunks[len(hunks)-1] {
+	if len(result.paths) == 0 || oldPath != "" || !currentHasHunk || inHunk {
 		return patchHeaders{}, ErrInvalidPatch
 	}
 	return result, nil
+}
+
+func consumeHunkLine(line string, oldRemaining, newRemaining *int) (int, error) {
+	if strings.HasPrefix(line, "\\ No newline at end of file") {
+		return 0, nil
+	}
+	switch {
+	case strings.HasPrefix(line, "+"):
+		if *newRemaining == 0 {
+			return 0, ErrInvalidPatch
+		}
+		*newRemaining--
+		return 1, nil
+	case strings.HasPrefix(line, "-"):
+		if *oldRemaining == 0 {
+			return 0, ErrInvalidPatch
+		}
+		*oldRemaining--
+		return 1, nil
+	case strings.HasPrefix(line, " "):
+		if *oldRemaining == 0 || *newRemaining == 0 {
+			return 0, ErrInvalidPatch
+		}
+		*oldRemaining--
+		*newRemaining--
+		return 0, nil
+	default:
+		return 0, ErrInvalidPatch
+	}
+}
+
+func parseHunkHeader(line string) (int, int, error) {
+	fields := strings.Fields(line)
+	if len(fields) < 4 || fields[0] != "@@" || fields[3] != "@@" {
+		return 0, 0, ErrInvalidPatch
+	}
+	oldCount, err := hunkCount(fields[1], "-")
+	if err != nil {
+		return 0, 0, err
+	}
+	newCount, err := hunkCount(fields[2], "+")
+	if err != nil {
+		return 0, 0, err
+	}
+	return oldCount, newCount, nil
+}
+
+func hunkCount(value, prefix string) (int, error) {
+	if !strings.HasPrefix(value, prefix) {
+		return 0, ErrInvalidPatch
+	}
+	parts := strings.Split(strings.TrimPrefix(value, prefix), ",")
+	if len(parts) > 2 || parts[0] == "" {
+		return 0, ErrInvalidPatch
+	}
+	if len(parts) == 1 {
+		return 1, nil
+	}
+	count, err := strconv.Atoi(parts[1])
+	if err != nil || count < 0 {
+		return 0, fmt.Errorf("%w: invalid hunk count", ErrInvalidPatch)
+	}
+	return count, nil
 }
 
 func patchPath(header, prefix string) (string, error) {

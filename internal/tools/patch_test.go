@@ -61,6 +61,19 @@ func TestPatchRejectsConflictsWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestPatchAcceptsHeaderLikeLinesInsideHunkPayload(t *testing.T) {
+	repo := testrepo.New(t, map[string]string{"a.txt": "-- a/other\n"})
+	patch := "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n--- a/other\n+++ b/other\n"
+
+	_, err := tools.NewPatchTool(repo.Root, tools.PatchLimits{MaxFiles: 5, MaxChangedLines: 500}).Execute(context.Background(), json.RawMessage(`{"patch":`+jsonString(patch)+`}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.ReplaceAll(repo.Read(t, "a.txt"), "\r\n", "\n"); got != "++ b/other\n" {
+		t.Fatalf("content = %q", got)
+	}
+}
+
 func TestPatchRejectsUnsafeFormsAndLimits(t *testing.T) {
 	repo := testrepo.New(t, map[string]string{"a.txt": "old\n"})
 	tool := tools.NewPatchTool(repo.Root, tools.PatchLimits{MaxFiles: 1, MaxChangedLines: 500})
