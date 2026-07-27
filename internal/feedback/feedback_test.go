@@ -114,6 +114,22 @@ func TestProcessBoundsEvidenceWithFirstAndLastLines(t *testing.T) {
 	}
 }
 
+func TestProcessPreservesExecutorOutputTruncation(t *testing.T) {
+	got := feedback.Pipeline{MaxEvidence: 100, MaxSummaryBytes: 100}.Process(feedback.Input{
+		StageID: "unit",
+		Code:    executor.CodeExit,
+		Observation: domain.Observation{
+			Code:            executor.CodeExit,
+			ExitCode:        intp(1),
+			Stdout:          "short output",
+			OutputTruncated: true,
+		},
+	})
+	if !got.OutputTruncated {
+		t.Fatalf("executor truncation not preserved: %#v", got)
+	}
+}
+
 func input(stageID, code, text string, exitCode int) feedback.Input {
 	return feedback.Input{
 		StageID: stageID,

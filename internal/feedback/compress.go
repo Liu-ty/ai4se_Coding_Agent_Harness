@@ -2,6 +2,7 @@ package feedback
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 )
@@ -49,5 +50,9 @@ func summarize(category, text string, maxBytes int) (string, bool) {
 	if maxBytes <= 0 {
 		return "", true
 	}
-	return summary[:maxBytes], true
+	truncated := summary[:maxBytes]
+	for len(truncated) > 0 && !utf8.ValidString(truncated) {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated, true
 }

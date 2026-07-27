@@ -13,7 +13,7 @@ type processTree struct {
 	job windows.Handle
 }
 
-func prepareProcessTree(cmd *exec.Cmd) (*processTree, error) {
+func prepareProcessTree(cmd *exec.Cmd) (processTreeController, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, err

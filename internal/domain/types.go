@@ -43,13 +43,14 @@ type AgentDecision struct {
 }
 
 type Observation struct {
-	Code      string
-	ExitCode  *int
-	Stdout    string
-	Stderr    string
-	StartedAt time.Time
-	EndedAt   time.Time
-	Data      json.RawMessage
+	Code            string
+	ExitCode        *int
+	Stdout          string
+	Stderr          string
+	OutputTruncated bool
+	StartedAt       time.Time
+	EndedAt         time.Time
+	Data            json.RawMessage
 }
 
 type Evidence struct {

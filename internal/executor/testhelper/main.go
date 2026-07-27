@@ -20,6 +20,12 @@ func main() {
 	case "large-output":
 		fmt.Fprint(os.Stdout, strings.Repeat("O", 128*1024))
 		fmt.Fprint(os.Stderr, strings.Repeat("E", 128*1024))
+	case "large-stdout":
+		fmt.Fprint(os.Stdout, strings.Repeat("O", 128*1024))
+		fmt.Fprint(os.Stderr, "ok")
+	case "large-stderr":
+		fmt.Fprint(os.Stdout, "ok")
+		fmt.Fprint(os.Stderr, strings.Repeat("E", 128*1024))
 	case "env":
 		for _, entry := range os.Environ() {
 			if strings.Contains(entry, "OPENAI_API_KEY") || strings.Contains(entry, "SAFE_EXECUTOR_TEST_VALUE") {

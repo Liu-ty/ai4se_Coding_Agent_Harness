@@ -2,10 +2,13 @@ package executor
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/config"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 )
+
+var ErrUnsupportedPlatform = errors.New("unsupported executor platform: only Windows and Linux are supported")
 
 const (
 	CodeExit       = "EXIT"

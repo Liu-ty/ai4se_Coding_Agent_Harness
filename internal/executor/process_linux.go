@@ -12,7 +12,7 @@ type processTree struct {
 	pid int
 }
 
-func prepareProcessTree(cmd *exec.Cmd) (*processTree, error) {
+func prepareProcessTree(cmd *exec.Cmd) (processTreeController, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return &processTree{}, nil
 }

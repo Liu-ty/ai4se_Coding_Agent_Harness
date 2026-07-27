@@ -12,6 +12,7 @@ import (
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/config"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/executor"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/feedback"
 )
 
 func TestExecutorCapturesSeparateStreamsAndExitCode(t *testing.T) {
@@ -35,8 +36,43 @@ func TestExecutorBoundsStdoutAndStderrIndependently(t *testing.T) {
 	if len(got.Stdout) != spec.MaxOutputBytes || len(got.Stderr) != spec.MaxOutputBytes {
 		t.Fatalf("stdout/stderr lengths = %d/%d, want %d/%d", len(got.Stdout), len(got.Stderr), spec.MaxOutputBytes, spec.MaxOutputBytes)
 	}
+	if !got.OutputTruncated {
+		t.Fatalf("output truncation not marked: %#v", got)
+	}
+	structured := feedback.Pipeline{MaxEvidence: 100, MaxSummaryBytes: 100}.Process(feedback.Input{
+		StageID:     spec.ID,
+		Code:        got.Code,
+		Observation: got,
+	})
+	if !structured.OutputTruncated {
+		t.Fatalf("executor truncation not preserved by feedback pipeline: %#v", structured)
+	}
 	if !strings.HasPrefix(got.Stdout, "OOOO") || !strings.HasPrefix(got.Stderr, "EEEE") {
 		t.Fatalf("unexpected bounded streams: stdout=%q stderr=%q", got.Stdout, got.Stderr)
+	}
+}
+
+func TestExecutorMarksEitherTruncatedStream(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{name: "stdout", mode: "large-stdout"},
+		{name: "stderr", mode: "large-stderr"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := helperSpec(t, tt.mode)
+			spec.MaxOutputBytes = 12
+
+			got, err := executor.NewLocal().Run(context.Background(), spec)
+			if err != nil {
+				t.Fatalf("run %s: %v", tt.mode, err)
+			}
+			if !got.OutputTruncated {
+				t.Fatalf("%s truncation not marked: %#v", tt.name, got)
+			}
+		})
 	}
 }
 

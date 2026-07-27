@@ -23,6 +23,12 @@ type Local struct {
 	Clock   func() time.Time
 }
 
+type processTreeController interface {
+	afterStart(*exec.Cmd) error
+	terminate()
+	close()
+}
+
 func NewLocal() *Local {
 	return &Local{}
 }
@@ -116,12 +122,13 @@ func (l *Local) Run(ctx context.Context, spec config.CommandSpec) (domain.Observ
 	}
 
 	return domain.Observation{
-		Code:      code,
-		ExitCode:  exitCode,
-		Stdout:    outBuf.String(),
-		Stderr:    errBuf.String(),
-		StartedAt: started,
-		EndedAt:   clock(),
+		Code:            code,
+		ExitCode:        exitCode,
+		Stdout:          outBuf.String(),
+		Stderr:          errBuf.String(),
+		OutputTruncated: outBuf.Truncated() || errBuf.Truncated(),
+		StartedAt:       started,
+		EndedAt:         clock(),
 	}, nil
 }
 
@@ -150,8 +157,9 @@ func sanitizedEnv(base []string) []string {
 }
 
 type boundedBuffer struct {
-	limit int
-	buf   bytes.Buffer
+	limit     int
+	buf       bytes.Buffer
+	truncated bool
 }
 
 func newBoundedBuffer(limit int) *boundedBuffer {
@@ -160,16 +168,25 @@ func newBoundedBuffer(limit int) *boundedBuffer {
 
 func (b *boundedBuffer) Write(p []byte) (int, error) {
 	accepted := len(p)
-	if b.buf.Len() < b.limit {
-		remaining := b.limit - b.buf.Len()
-		if remaining > len(p) {
-			remaining = len(p)
-		}
-		_, _ = b.buf.Write(p[:remaining])
+	remaining := b.limit - b.buf.Len()
+	if remaining <= 0 {
+		b.truncated = b.truncated || len(p) > 0
+		return accepted, nil
+	}
+	if remaining > len(p) {
+		remaining = len(p)
+	}
+	_, _ = b.buf.Write(p[:remaining])
+	if remaining < len(p) {
+		b.truncated = true
 	}
 	return accepted, nil
 }
 
 func (b *boundedBuffer) String() string {
 	return b.buf.String()
+}
+
+func (b *boundedBuffer) Truncated() bool {
+	return b.truncated
 }

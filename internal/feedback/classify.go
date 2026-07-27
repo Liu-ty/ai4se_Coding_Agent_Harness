@@ -36,7 +36,7 @@ func (p Pipeline) Process(in Input) domain.StructuredFeedback {
 		Fingerprint:         Fingerprint(in.StageID, category, redacted),
 		Evidence:            evidence,
 		Retryable:           retryable(category),
-		OutputTruncated:     evidenceTruncated || summaryTruncated,
+		OutputTruncated:     in.Observation.OutputTruncated || evidenceTruncated || summaryTruncated,
 		PreviousOccurrences: in.PriorOccurrences,
 	}
 }
