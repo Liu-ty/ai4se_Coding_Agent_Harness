@@ -287,4 +287,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Red evidence:** Added `TestSQLiteDSNNormalizesRelativePaths` before changing `sqliteDSN`; it failed because `sqliteDSN("state/runs.db")` produced `file://state/runs.db?...` with host `state`.
 - **Implementation:** Replaced SQLite setup and trigger calls with context-aware database methods; normalized relative SQLite paths to absolute file URIs while preserving DSN pragmas; propagated `ListEvents` `rows.Close` errors; replaced deprecated TOML decoding; documented the single-connection hash-chain dependency and lock-free `CheckTime` invariant; reconciled `SPEC_PROCESS.md` with the completed deferred gate in `PLAN.md`.
 - **Verification:** Focused config/budget/store tests, full `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 `go build ./...`, and Linux amd64 test-binary compilation all exited 0. The Go tool still printed the pre-existing telemetry upload-token warning on this Windows machine.
-- **GitHub writes:** No review-thread replies, resolutions, or comments were posted; only the branch code will be updated after local verification.
+- **GitHub writes:** No review-thread replies, resolutions, or comments were posted; only the branch code was updated after local verification.
+
+## 2026-07-27 - PR #2 Merge and Workspace Sync
+
+- **Task:** PR-2-MERGE-SYNC-001.
+- **Skills:** `superpowers:receiving-code-review`, `superpowers:verification-before-completion`, `github:gh-address-comments`.
+- **GitHub status:** PR #2 (`Config store budget`) is merged into `main` with merge commit `712f25732fda184272faa835d76343f568a3fd07`. The PR head was `c43215de93d635678b7691d2de886e14da1e801e`.
+- **Review status:** The five original CodeRabbit inline threads were resolved by CodeRabbit after commit `c43215d`. The follow-up CodeRabbit run for the last seven changed files was not performed because the PR review limit was reached; the bot reported the next review window would reopen later rather than posting new actionable findings.
+- **Workspace sync:** Fetched `origin/main` and `origin/config-store-budget`, fast-forwarded local `main` to `origin/main`, and fast-forwarded the `F:\codes\ai4se-cold-start` `config-store-budget` worktree from `b391b92` to `c43215d`.
+- **Next step:** Task 5 should start from updated `main`, not from the already-merged `config-store-budget` branch.

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Post-Task-4 integration gate is complete in the working tree. Foundation PR is merged at `6cad5d1`; Tasks 1–4 have implementation commits and fresh reviews. The `config-store-budget` branch may proceed to publication after this gate commit; Task 5 remains the next implementation task.
+**Status:** Foundation PR #1 is merged at `6cad5d1`, and the `config-store-budget` PR #2 is merged into `main` at `712f257`. Tasks 1-4 are complete on `main`; Task 5 remains the next implementation task.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -566,7 +566,7 @@ Give the Task 4 alignment diff first to a fresh SPEC-compliance reviewer and the
 
 ## Post-Task-4 Pause and Deferred `config-store-budget` Integration Gate
 
-This gate records confirmed SPEC §6.1 and backend-contract defects found by the final Tasks 2–4 branch review. It is intentionally deferred until the student resumes work. The branch is not PR-ready until these items pass TDD and two fresh reviews:
+This gate records confirmed SPEC §6.1 and backend-contract defects found by the final Tasks 2-4 branch review. It was intentionally deferred until the student resumed work, then completed before PR #2 publication and merge:
 
 - [x] Move the `Store` port out of the concrete SQLite adapter package so core consumers can depend on the port without compiling or initializing SQLite; update the planned file structure and imports without changing observable store semantics.
 - [x] Add shared contract tests for already-cancelled contexts and make the memory and SQLite implementations return compatible cancellation errors without mutation.
@@ -574,7 +574,7 @@ This gate records confirmed SPEC §6.1 and backend-contract defects found by the
 - [x] Run `go mod tidy` and verify `modernc.org/sqlite` is a direct dependency, then rerun the full Windows and Linux amd64 gates.
 - [x] Complete fresh SPEC-compliance and code-quality reviews before publishing the `config-store-budget` PR.
 
-**Pause rule:** after Task 4 Step 8 is complete, stop. Resume with this gate before Task 5 or branch publication.
+**Gate result:** satisfied and merged through PR #2 at `712f257`; Task 5 may start from updated `main`.
 
 ---
 
