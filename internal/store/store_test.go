@@ -469,7 +469,7 @@ func TestSQLiteUpdateRunRollsBackWhenEventInsertFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = raw.Close() })
-	if _, err := raw.Exec(`
+	if _, err := raw.ExecContext(ctx, `
 		CREATE TRIGGER reject_state_change_event
 		BEFORE INSERT ON run_events
 		WHEN NEW.type = 'StateChanged'

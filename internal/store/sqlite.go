@@ -43,14 +43,18 @@ func OpenSQLiteWithClock(path string, clock Clock) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A single open connection is required for hash-chain correctness:
+	// appendEventTx reads the latest sequence/hash and inserts the next event
+	// without row-level locking, so a wider pool could race that allocation.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+	setupCtx := context.Background()
+	if _, err := db.ExecContext(setupCtx, "PRAGMA journal_mode = WAL"); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("enable WAL: %w", err)
 	}
 	var journalMode string
-	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+	if err := db.QueryRowContext(setupCtx, "PRAGMA journal_mode").Scan(&journalMode); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("read journal mode: %w", err)
 	}
@@ -58,7 +62,7 @@ func OpenSQLiteWithClock(path string, clock Clock) (*SQLiteStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("enable WAL: journal mode is %q", journalMode)
 	}
-	if _, err := db.Exec(initialMigration); err != nil {
+	if _, err := db.ExecContext(setupCtx, initialMigration); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply initial migration: %w", err)
 	}
@@ -66,6 +70,11 @@ func OpenSQLiteWithClock(path string, clock Clock) (*SQLiteStore, error) {
 }
 
 func sqliteDSN(path string) string {
+	if !filepath.IsAbs(path) {
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+	}
 	dsnPath := filepath.ToSlash(path)
 	if volume := filepath.VolumeName(path); volume != "" && !strings.HasPrefix(dsnPath, "/") {
 		dsnPath = "/" + dsnPath
@@ -221,7 +230,7 @@ func loadTime(value int64) time.Time {
 	return time.Unix(0, value).UTC()
 }
 
-func (s *SQLiteStore) ListEvents(ctx context.Context, runID domain.RunID, fromSequence uint64) ([]domain.RunEvent, error) {
+func (s *SQLiteStore) ListEvents(ctx context.Context, runID domain.RunID, fromSequence uint64) (events []domain.RunEvent, err error) {
 	if err := validateRunID(runID); err != nil {
 		return nil, err
 	}
@@ -244,8 +253,12 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, runID domain.RunID, fromSe
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	events := make([]domain.RunEvent, 0)
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	events = make([]domain.RunEvent, 0)
 	for rows.Next() {
 		var event domain.RunEvent
 		var at int64

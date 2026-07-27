@@ -278,3 +278,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Minor review notes deferred:** The nil-clock panic message is not separately locked by a test, `Clock.Now()` is still expected to be a simple clock and is called while memory holds its mutex / SQLite holds a transaction, and the injected-clock test checks returned events rather than reloading them via `ListEvents`. These were classified as Minor/Nice-to-have and did not block the gate.
 - **Human intervention:** The user asked to continue from the documents and Superpowers. No product behavior beyond the already-approved SPEC/PLAN was selected during this gate.
 - **Lesson:** Architecture gates need plan repair as much as code repair; otherwise future tasks can accidentally rebuild against the concrete adapter package and undo the intended dependency boundary.
+
+## 2026-07-27 - PR #2 CodeRabbit Follow-up
+
+- **Task:** PR-2-CODERABBIT-FOLLOWUP-001.
+- **Skills:** `superpowers:receiving-code-review`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`, `github:gh-address-comments`.
+- **Review intake:** CodeRabbit reported five actionable comments and three nitpicks on PR #2. Each finding was checked against the current `config-store-budget` diff before changing code.
+- **Red evidence:** Added `TestSQLiteDSNNormalizesRelativePaths` before changing `sqliteDSN`; it failed because `sqliteDSN("state/runs.db")` produced `file://state/runs.db?...` with host `state`.
+- **Implementation:** Replaced SQLite setup and trigger calls with context-aware database methods; normalized relative SQLite paths to absolute file URIs while preserving DSN pragmas; propagated `ListEvents` `rows.Close` errors; replaced deprecated TOML decoding; documented the single-connection hash-chain dependency and lock-free `CheckTime` invariant; reconciled `SPEC_PROCESS.md` with the completed deferred gate in `PLAN.md`.
+- **Verification:** Focused config/budget/store tests, full `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 `go build ./...`, and Linux amd64 test-binary compilation all exited 0. The Go tool still printed the pre-existing telemetry upload-token warning on this Windows machine.
+- **GitHub writes:** No review-thread replies, resolutions, or comments were posted; only the branch code will be updated after local verification.

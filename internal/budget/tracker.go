@@ -69,9 +69,11 @@ type Clock interface {
 
 // Tracker records consumption and rejects attempts that would exceed its limits.
 type Tracker struct {
-	mu        sync.Mutex
-	limits    Limits
-	usage     Usage
+	mu     sync.Mutex
+	limits Limits
+	usage  Usage
+	// startedAt duplicates usage.StartedAt so CheckTime can read it without
+	// t.mu; a custom Clock.Now may reenter Tracker and deadlock otherwise.
 	startedAt time.Time
 	clock     Clock
 }
@@ -125,6 +127,8 @@ func (t *Tracker) record(used *int, limit int, reason StopReason, cause error) e
 }
 
 // CheckTime returns a stop error once the wall-clock budget has elapsed.
+// It intentionally avoids t.mu so reentrant Clock implementations cannot
+// self-deadlock while checking time.
 func (t *Tracker) CheckTime() error {
 	now := t.clock.Now()
 	if t.limits.WallClock <= 0 || now.Sub(t.startedAt) >= t.limits.WallClock {

@@ -43,7 +43,7 @@ func Load(r io.Reader) (Config, error) {
 			WallClock:          "20m",
 		},
 	}
-	md, err := toml.DecodeReader(r, &cfg)
+	md, err := toml.NewDecoder(r).Decode(&cfg)
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}

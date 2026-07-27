@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +33,29 @@ func TestSQLiteConnectionPragmasSurviveConnectionReplacement(t *testing.T) {
 	}
 }
 
+func TestSQLiteDSNNormalizesRelativePaths(t *testing.T) {
+	got := sqliteDSN(filepath.Join("state", "runs.db"))
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Scheme != "file" {
+		t.Fatalf("sqliteDSN() scheme = %q, want file in %q", parsed.Scheme, got)
+	}
+	if parsed.Host != "" {
+		t.Fatalf("sqliteDSN() host = %q, want empty host in %q", parsed.Host, got)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(parsed.Path), "/state/runs.db") {
+		t.Fatalf("sqliteDSN() path = %q, want absolute path ending in /state/runs.db in %q", parsed.Path, got)
+	}
+	pragmas := parsed.Query()["_pragma"]
+	if !containsString(pragmas, "foreign_keys(1)") ||
+		!containsString(pragmas, "busy_timeout(5000)") ||
+		!containsString(pragmas, "journal_mode(WAL)") {
+		t.Fatalf("sqliteDSN() pragmas = %v, want foreign_keys, busy_timeout, and journal_mode", pragmas)
+	}
+}
+
 func TestHashEventKnownAnswer(t *testing.T) {
 	event := domain.RunEvent{
 		RunID:        "run-42",
@@ -44,4 +69,13 @@ func TestHashEventKnownAnswer(t *testing.T) {
 	if got := hashEvent(event); got != want {
 		t.Fatalf("hashEvent() = %q, want %q", got, want)
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
