@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Cold-start evidence committed; Task 1 foundation complete at `c76bfd8` and awaiting PR review.
+**Status:** Post-Task-4 integration gate is complete in the working tree. Foundation PR is merged at `6cad5d1`; Tasks 1–4 have implementation commits and fresh reviews. The `config-store-budget` branch may proceed to publication after this gate commit; Task 5 remains the next implementation task.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -63,7 +63,8 @@ Each numbered task is executed by a fresh subagent even when two sequential task
 cmd/ai4se-harness/             CLI and local/demo composition roots
 internal/domain/               Stable entities, enums, state transitions, port types
 internal/config/               Strict versioned TOML and platform command resolution
-internal/store/                Memory and SQLite run/event/artifact stores
+internal/storeport/            Store persistence port and shared store errors
+internal/store/                Memory and SQLite run/event/artifact adapters
 internal/budget/               Decision/mutation/time budgets and progress detection
 internal/policy/               Risk classification, profiles, approval digests
 internal/workspace/            Canonical paths, protected files, Git baseline
@@ -269,7 +270,7 @@ git commit -m "feat: define harness domain state machine"
 
 ---
 
-### Task 2: Strict Versioned Project Configuration
+### Task 2: Strict Versioned Project Configuration — complete (`83c03a2`, review fix `624f6b9`, Task 4 integration correction `994530d`)
 
 **Files:**
 - Create: `internal/config/config.go`
@@ -283,7 +284,7 @@ git commit -m "feat: define harness domain state machine"
 - Consumes: `domain.PermissionProfile`.
 - Produces: `config.Config`, `config.CommandSpec`, `config.Load(io.Reader) (Config, error)`, and `config.ResolveStage(ValidationStage, runtime.GOOS) (CommandSpec, error)`.
 
-- [ ] **Step 1: Write failing strict-load, semantic-validation, and platform-resolution tests**
+- [x] **Step 1: Write failing strict-load, semantic-validation, and platform-resolution tests**
 
 ```go
 package config_test
@@ -313,12 +314,12 @@ Before implementation, the red suite must also contain named cases that prove al
 - Resolved command specifications preserve configured classifier rules.
 - `testdata/config/valid.toml` loads successfully and preserves the expected canonical values.
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/config -v`  
 Expected: FAIL because package `internal/config` does not exist.
 
-- [ ] **Step 3: Implement exact configuration types**
+- [x] **Step 3: Implement exact configuration types**
 
 ```go
 type Config struct {
@@ -346,11 +347,11 @@ type CommandSpec struct { ID, Kind, Executable, WorkingDirectory string; Args []
 
 Use `github.com/BurntSushi/toml` metadata to reject undecoded keys. Centralize validation so `Load` requires `version = 1`, accepts only the three defined permission profiles, rejects duplicate stage IDs, rejects Windows and POSIX absolute working directories independently of the host OS, rejects empty base/override executables, and rejects malformed or non-positive validation timeouts. Use focused helpers for host-independent absolute-path detection and `parsePositiveDuration(string) (time.Duration, error)`; `ResolveStage` must propagate timeout errors and must never convert an invalid timeout to zero.
 
-- [ ] **Step 4: Implement strict resolution and all semantic validators**
+- [x] **Step 4: Implement strict resolution and all semantic validators**
 
 Keep decoding, semantic validation, and target-OS resolution separate. `ResolveStage` must select the matching override, retain base fields and classifier rules not replaced by the override, and return the parsed positive timeout in `CommandSpec`.
 
-- [ ] **Step 5: Add the canonical fixture and run green**
+- [x] **Step 5: Add the canonical fixture and run green**
 
 ```toml
 version = 1
@@ -379,38 +380,44 @@ executable = "go.exe"
 Run: `go test ./internal/config -v`  
 Expected: PASS for unknown fields, schema version, permission profiles, duplicate IDs, platform-neutral Windows/POSIX absolute-path rejection, empty executables, malformed/zero/negative timeouts, positive timeout parsing, classifier preservation, canonical fixture loading, and Windows/Linux override selection.
 
-- [ ] **Step 6: Run the common exit gate and two independent reviews**
+- [x] **Step 6: Run the common exit gate and two independent reviews**
 
 Run `go test ./...` and `git diff --check`. Then give the task diff to a fresh spec-compliance reviewer and, after resolving its findings, to a different fresh code-quality reviewer. Record both review results and all fixes in `AGENT_LOG.md`; a single combined review or implementer self-certification does not satisfy this step.
 
-- [ ] **Step 7: Update evidence and commit**
+- [x] **Step 7: Update evidence and commit**
 
 ```powershell
 git add internal/config testdata/config AGENT_LOG.md go.mod go.sum
 git commit -m "feat: add strict versioned harness configuration"
 ```
 
+- [x] **Step 8: Align configured budget defaults and validation with SPEC §4.7**
+
+Before changing production code, add focused tests proving that omitted budget keys resolve to `30` decisions, `5` mutations, `2` protocol repairs, and `"20m"` wall-clock, including partially specified `[budget]` tables. Add table-driven tests proving that an explicitly configured zero or negative count, malformed duration, or zero/negative duration is rejected with a stable budget-validation error. Preinitialize the decoder target with the SPEC defaults so omission remains distinct from an explicit zero, then validate all resolved budget fields. This correction is part of the Task 4 integration boundary and must be reviewed with Task 4.
+
 ---
 
-### Task 3: Hash-Chained Memory and SQLite Event Store
+### Task 3: Hash-Chained Memory and SQLite Event Store — implementation complete (`b7814ee`, review fixes `110cbf6`, `01891d0`); architecture remediation deferred
 
 **Files:**
 - Create: `internal/domain/events.go`
+- Create: `internal/storeport/store.go`
 - Create: `internal/store/store.go`
 - Create: `internal/store/memory.go`
 - Create: `internal/store/sqlite.go`
 - Create: `internal/store/migrations/001_init.sql`
 - Test: `internal/store/store_test.go`
+- Test: `internal/storeport/storeport_test.go`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**
 - Consumes: `domain.Run`, `domain.RunEvent`, `domain.Artifact`.
-- Produces: `store.Store` with `CreateRun`, `AppendEvent`, `GetRun`, `ListEvents`, and `PutArtifact`; memory and SQLite implementations must pass one contract suite.
+- Produces: `storeport.Store` with `CreateRun`, `AppendEvent`, `GetRun`, `ListEvents`, and `PutArtifact`; memory and SQLite implementations must pass one contract suite.
 
-- [ ] **Step 1: Write a store contract that fails for both implementations**
+- [x] **Step 1: Write a store contract that fails for both implementations**
 
 ```go
-type factory func(t *testing.T) store.Store
+type factory func(t *testing.T) storeport.Store
 func contract(t *testing.T, newStore factory) {
     s := newStore(t)
     run := domain.Run{ID:"run-1", State:domain.StateCreated}
@@ -423,12 +430,12 @@ func contract(t *testing.T, newStore factory) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/store -v`  
 Expected: FAIL because store/domain event types are missing.
 
-- [ ] **Step 3: Define events and store contract**
+- [x] **Step 3: Define events and store contract**
 
 ```go
 type RunEvent struct { RunID RunID; Sequence uint64; Type string; At time.Time; Payload json.RawMessage; PreviousHash, Hash string }
@@ -448,35 +455,39 @@ type Store interface {
 
 Hash input is canonical `run_id | sequence | type | unix_nano | payload | previous_hash`, encoded with length prefixes and SHA-256.
 
-- [ ] **Step 4: Implement memory then SQLite transaction semantics**
+- [x] **Step 4: Implement memory then SQLite transaction semantics**
 
 The SQLite migration creates `runs`, `run_events`, `artifacts`, and `schema_migrations`, unique on `(run_id, sequence)`. `UpdateRun` updates the run snapshot and appends the event inside one SQL transaction. Use `modernc.org/sqlite`; configure one writer, foreign keys, busy timeout, and WAL for local mode.
 
-- [ ] **Step 5: Run contract tests, reopen SQLite, and commit**
+- [x] **Step 5: Run contract tests, reopen SQLite, and commit**
 
 Run: `go test ./internal/store -v`  
 Expected: PASS for memory, SQLite, concurrent sequence allocation, rollback-on-event-failure, and reopen persistence.
 
 ```powershell
-git add internal/domain/events.go internal/store AGENT_LOG.md go.mod go.sum
+git add internal/domain/events.go internal/storeport internal/store AGENT_LOG.md go.mod go.sum
 git commit -m "feat: persist hash-chained run events"
 ```
 
 ---
 
-### Task 4: Dual Budgets and No-Progress Detection
+### Task 4: Dual Budgets and No-Progress Detection — complete (`c381b15`, review fixes `d015fb5`, `994530d`)
 
 **Files:**
 - Create: `internal/budget/tracker.go`
 - Create: `internal/budget/progress.go`
 - Test: `internal/budget/tracker_test.go`
+- Test: `internal/budget/progress_test.go`
+- Modify: `internal/config/load.go`
+- Test: `internal/config/config_test.go`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**
-- Consumes: configured limits, clock, feedback fingerprint, diff digest.
-- Produces: `budget.Tracker`, `budget.ProgressDetector`, and typed stop reasons.
+- Consumes: validated configured limits, clock, feedback fingerprint, and diff digest.
+- Produces: `budget.Tracker`, `budget.ProgressDetector`, typed stop reasons, and typed progress outcomes (`continue`, `warning`, `stop`).
+- `RecordDecision` opens a new decision point and resets the current decision point's protocol-repair usage only after the decision is successfully recorded. `RecordProtocolRepair` enforces the two-attempt limit independently at each decision point.
 
-- [ ] **Step 1: Write failing boundary tests with a fake clock**
+- [x] **Step 1: Write failing boundary tests with a fake clock**
 
 ```go
 func TestTrackerStopsAtDecisionLimit(t *testing.T) {
@@ -492,12 +503,12 @@ func TestNoProgressNeedsSameFailureAndSameDiffTwice(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/budget -v`  
 Expected: FAIL because budget package is missing.
 
-- [ ] **Step 3: Implement tracker and detector**
+- [x] **Step 3: Implement tracker and detector**
 
 ```go
 type Limits struct { MaxDecisions, MaxMutations, MaxProtocolRepairs int; WallClock time.Duration }
@@ -511,9 +522,9 @@ func (t *Tracker) CheckTime() error
 func (t *Tracker) Snapshot() Usage
 ```
 
-`ProgressDetector.Observe` compares the last failure and diff digests and returns true only at the configured consecutive threshold.
+`ProgressDetector.Observe` compares the last failure and diff digests and returns a typed outcome. The first complete pair continues; the same failure with a substantively changed diff emits `warning` and starts a new consecutive pair; an identical pair reaching the threshold emits `stop`; different or incomplete evidence resets the consecutive evidence and continues.
 
-- [ ] **Step 4: Run green and commit**
+- [x] **Step 4: Run green and commit**
 
 Run: `go test ./internal/budget -v`  
 Expected: PASS, including exact-limit, wall-clock, reset-after-progress, and same-failure/different-diff warning cases.
@@ -522,6 +533,48 @@ Expected: PASS, including exact-limit, wall-clock, reset-after-progress, and sam
 git add internal/budget AGENT_LOG.md
 git commit -m "feat: enforce run budgets and progress stops"
 ```
+
+- [x] **Step 5: Write failing SPEC-alignment tests**
+
+Add tests before production changes for all three confirmed gaps:
+
+- omitted and partially specified configuration receives the four SPEC defaults, while explicit non-positive or malformed budget values are rejected;
+- the third protocol repair in one decision point stops, while a successfully recorded next decision opens a fresh two-repair allowance;
+- `ProgressDetector.Observe` returns distinct typed `continue`, `warning`, and `stop` outcomes, including the same-failure/changed-diff warning transition.
+
+Also increase the re-entrant clock regression timeout from 200 ms to 2 seconds so unusually slow CI workers do not create a false deadlock report.
+
+- [x] **Step 6: Run red and preserve evidence**
+
+Run:
+
+```powershell
+go test ./internal/config ./internal/budget -count=1
+```
+
+Expected: FAIL because defaults/validation, per-decision-point repair reset, and typed warning outcomes are not yet implemented. Record the failing assertions in `AGENT_LOG.md`.
+
+- [x] **Step 7: Implement the minimum aligned contracts and run green**
+
+Implement only the behavior named in Step 5. Do not begin the deferred Task 3 architecture work or Task 5. Then run the focused suites, race detector, common task exit gate, and Linux amd64 cross-compilation.
+
+- [x] **Step 8: Run two fresh reviews, update evidence, and pause**
+
+Give the Task 4 alignment diff first to a fresh SPEC-compliance reviewer and then to a different fresh code-quality reviewer. Fix all Critical and Important findings within Task 4 scope, update this heading and completed checkboxes with the final commit hash, append `AGENT_LOG.md`, and stop. Do not start the deferred gate or Task 5 in this session.
+
+---
+
+## Post-Task-4 Pause and Deferred `config-store-budget` Integration Gate
+
+This gate records confirmed SPEC §6.1 and backend-contract defects found by the final Tasks 2–4 branch review. It is intentionally deferred until the student resumes work. The branch is not PR-ready until these items pass TDD and two fresh reviews:
+
+- [x] Move the `Store` port out of the concrete SQLite adapter package so core consumers can depend on the port without compiling or initializing SQLite; update the planned file structure and imports without changing observable store semantics.
+- [x] Add shared contract tests for already-cancelled contexts and make the memory and SQLite implementations return compatible cancellation errors without mutation.
+- [x] Inject a clock into memory and SQLite event creation at composition/construction boundaries; add deterministic timestamp and hash-chain tests that never call the real clock.
+- [x] Run `go mod tidy` and verify `modernc.org/sqlite` is a direct dependency, then rerun the full Windows and Linux amd64 gates.
+- [x] Complete fresh SPEC-compliance and code-quality reviews before publishing the `config-store-budget` PR.
+
+**Pause rule:** after Task 4 Step 8 is complete, stop. Resume with this gate before Task 5 or branch publication.
 
 ---
 
@@ -1168,7 +1221,7 @@ Check canonical Git root, Git executable, baseline commit/diff, config, platform
 type CreateRunRequest struct { RepoRoot, Task, Provider, Model, Endpoint string; Profile domain.PermissionProfile; ConfigPath string }
 type PreflightReport struct { OK bool; Findings []Finding; BaselineCommit, BaselineDiffHash string }
 type LoopController interface { Start(context.Context, domain.Run) error; Approve(context.Context, domain.RunID, string) error; Reject(context.Context, domain.RunID, string, bool) error; Cancel(context.Context, domain.RunID) error }
-type Service struct { store store.Store; locks *RepoLocks; loops LoopController; creds *credentials.Service }
+type Service struct { store storeport.Store; locks *RepoLocks; loops LoopController; creds *credentials.Service }
 func (s *Service) Preflight(context.Context, CreateRunRequest) PreflightReport
 func (s *Service) CreateRun(context.Context, CreateRunRequest) (domain.Run, error)
 func (s *Service) Approve(context.Context, domain.RunID, string) error

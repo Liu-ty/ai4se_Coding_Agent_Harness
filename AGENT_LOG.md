@@ -161,3 +161,130 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Verification:** On the `foundation` branch, `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 package build, and Linux amd64 test-binary compilation all passed.
 - **Human intervention:** The student authorized execution of the recommended process closure, branch publication, and Foundation PR preparation. No merge was authorized.
 - **Lesson:** Splitting implementation commits is not sufficient by itself; the plan status, task hash, checkboxes, and durable agent log must describe the same Git state before publication.
+
+## 2026-07-23 — Task 2 Branch Integration Closure
+
+- **Task:** CONFIG-INTEGRATION-001
+- **Skills:** `superpowers:using-superpowers`, `superpowers:executing-plans`, `superpowers:receiving-code-review`, `superpowers:using-git-worktrees`, `superpowers:verification-before-completion`.
+- **Context:** After the Foundation process commit, the unpublished `config-store-budget` branch was rebased onto `foundation`, changing the Task 2 implementation commit from `8a2e9bb` to `0d244ea` without changing its patch.
+- **Key output:** Annotated Task 2 with implementation commit `0d244ea`, marked its seven planned steps complete, and updated the plan status to state that Tasks 3–4 have not started.
+- **Verification:** On `config-store-budget`, `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 package build, and Linux amd64 test-binary compilation all passed. The first sandboxed attempt could not read the external Go build cache; the identical commands passed outside the restricted sandbox.
+- **Human intervention:** The student authorized the process repair and remote backup/PR preparation; Task 3 implementation and PR merge remain outside this step.
+- **Lesson:** Record the post-rebase commit identifier, not the obsolete pre-rebase hash, and distinguish an environment permission failure from a failing test assertion.
+
+## 2026-07-23 — Independent Review Fix and Final Branch Alignment
+
+- **Task:** CONFIG-REVIEW-FIX-001
+- **Skills:** `superpowers:requesting-code-review`, `superpowers:receiving-code-review`, `superpowers:systematic-debugging`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`.
+- **Context:** An independent GPT-5.6 Sol review accepted the Foundation range with documentation fixes and found that `C:relative` could bypass the host-independent working-directory guard on Windows. A second bounded reviewer confirmed the commit layering and Task 3 boundary but did not identify that path case.
+- **Red-green evidence:** Added `C:relative` and `c:relative` to `TestLoadRejectsCrossPlatformAbsoluteWorkingDirectories`; both failed with `got <nil>` before the fix and passed after all leading ASCII drive designators were rejected.
+- **Key output:** Moved the two evidence-text corrections into Foundation commit `5dfe967`; rebased Task 2 to implementation commit `83c03a2`; retained the TDD review fix as `624f6b9`; and kept Task 3 unstarted.
+- **Verification:** After the final rebase, `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 package build, and Linux amd64 test-binary compilation all passed.
+- **Human intervention:** The student authorized execution and publication preparation but did not authorize merging either branch.
+- **Lesson:** Cross-host path validation must reject drive-relative forms as well as drive-rooted forms; a fast release-gate review does not replace a deeper security-focused review.
+
+## 2026-07-24 - Task 3: Hash-Chained Memory and SQLite Event Store
+
+- **Task:** Task 3 (implementation only; PLAN.md remains unmarked pending controller review).
+- **Skills:** `superpowers:test-driven-development`.
+- **Red evidence:** `go test ./internal/store -v` initially failed with `no non-test Go files in F:\\codes\\ai4se\\internal\\store`, after the contract test was added and before production store code existed. A restricted-sandbox attempt first failed only because the external Go build cache was inaccessible; the same command outside that restriction produced the expected red result.
+- **Green evidence:** `go test ./internal/store -v` passed the memory and SQLite contracts, canonical hash verification, ID/type sentinels, payload isolation, concurrent sequence allocation, UpdateRun failure atomicity, empty content handling, and SQLite close/reopen persistence. `go test ./...` passed for `config`, `domain`, and `store`; `git diff --check` was clean.
+- **Implementation:** Added domain events/artifacts, a concurrency-safe memory store, a SQLite store using `modernc.org/sqlite`, embedded schema migration, length-prefixed SHA-256 event hashes, stable input-validation sentinels, transaction-backed updates, and SQLite foreign-key/busy-timeout/WAL/single-writer configuration.
+- **Self-review:** Corrected SQLite zero-time round-tripping and empty BLOB handling after focused tests exposed them. Verified the hash field order is run ID, sequence, type, Unix nanoseconds, payload, previous hash, each with an eight-byte big-endian length prefix.
+- **Human intervention:** Approved normal dependency-download and Go build-cache access prompts; no product-design decisions were required.
+- **Lesson:** Store contract tests must cover zero-value domain fields and empty byte slices, not only typical populated data.
+
+## 2026-07-24 — Task 3 Independent Review and Closure
+
+- **Task:** TASK-3-REVIEW-001.
+- **Skills:** `superpowers:subagent-driven-development`, `superpowers:requesting-code-review`, `superpowers:receiving-code-review`, `superpowers:verification-before-completion`.
+- **Context:** GitHub showed Foundation PR #1 already merged at `6cad5d1`. `main` was merged into `config-store-budget` without rewriting history (`116b106`), Task 2 was reverified on Windows and by Linux amd64 cross-compilation, and the synchronized branch was pushed before Task 3 began. Because the existing Task 2 worktree was outside the active writable sandbox, Task 3 was implemented on temporary branch `codex/task3-store` from the same `116b106` base and is intended to fast-forward `config-store-budget` after verification.
+- **Implementation commits:** `b7814ee` added the hash-chained memory/SQLite event store; `110cbf6` added successful `UpdateRun` and post-snapshot event-insert rollback evidence; `01891d0` aligned duplicate-run, missing-parent artifact, timestamp, empty-list, large-sequence, and per-connection SQLite PRAGMA semantics.
+- **Spec review:** An independent GPT-5.6 Sol reviewer initially found that the rollback test stopped before entering the transaction. After the trigger-based SQLite regression test and common successful `UpdateRun` contract were added, the reviewer returned **Approved** with no Critical, Important, or Minor findings.
+- **Quality review:** A different independent GPT-5.6 Sol reviewer found backend error mismatches and connection-scoped PRAGMAs that could be lost when `database/sql` replaced a physical connection. After stable sentinel parity, DSN-scoped PRAGMAs, WAL verification, connection-replacement coverage, timestamp normalization, full concurrent hash-chain validation, a fixed digest vector, and large-sequence handling were added, the reviewer returned **Approved** with no remaining findings.
+- **Verification:** Focused store tests, `go test -race ./internal/store -count=1`, `go test ./... -count=1`, `go vet ./...`, `gofmt -l internal`, and `git diff --check` passed on the reviewed `01891d0` code. The controller still runs the full common exit gate and Linux amd64 cross-compilation before publication.
+- **Human intervention:** The user authorized autonomous progress from the supplied project requirements and checklist. Approval prompts were limited to Git/GitHub synchronization, dependency download, and access to the existing Go build cache; no product behavior was selected by the user during Task 3.
+- **Lesson:** A shared store interface is not proven interchangeable by happy-path contracts alone. Duplicate IDs, foreign-key failures, connection replacement, time normalization, and extreme sequence bounds must have backend-neutral observable semantics.
+
+## 2026-07-24 - Task 4: Dual Budgets and No-Progress Detection
+
+- **Task:** Task 4 implementation only; `PLAN.md` remains unchanged for controller review.
+- **Skills:** `superpowers:test-driven-development`.
+- **Red evidence:** Created the `internal/budget` boundary tests before production code. `go test ./internal/budget -v` then failed as expected because `NewProgressDetector`, `Limits`, `Tracker`, `Usage`, and the budget sentinels did not yet exist.
+- **Green evidence:** After the minimal implementation, `go test ./internal/budget -v` passed all 12 tracker/progress tests. `go test -race ./internal/budget -count=1`, `go test ./... -count=1`, `go vet ./...`, `gofmt -l internal`, and `git diff --check` all passed.
+- **Implementation:** Added a mutex-protected tracker with independent decision, mutation, protocol-repair, and wall-clock limits; exported sentinel errors plus `StopError.Reason`; value snapshots; and a consecutive pair-based progress detector that resets on incomplete or changed signals.
+- **Self-review:** Count records compare before incrementing, so attempt N+1 is rejected without usage inflation. The fake-clock boundary test verifies `elapsed >= WallClock`, while failed time checks leave usage intact. Detector tests verify both members of the pair must repeat, threshold one works, and empty evidence resets state.
+- **Concerns:** None identified. `New` intentionally requires a non-nil caller-supplied `Clock`, matching the defined constructor contract and allowing deterministic harness integration.
+
+## 2026-07-24 — Task 4 Independent Review and Closure
+
+- **Task:** TASK-4-REVIEW-001.
+- **Skills:** `superpowers:subagent-driven-development`, `superpowers:requesting-code-review`, `superpowers:receiving-code-review`, `superpowers:verification-before-completion`.
+- **Implementation commits:** `c381b15` added decision, mutation, protocol-repair, and wall-clock budgets plus consecutive failure/diff detection; `d015fb5` made stop errors immutable, defined the nil-clock contract, removed the injected-clock callback from the tracker lock, and added shared-state race coverage.
+- **Spec review:** An independent GPT-5.6 Sol reviewer returned **Approved** with no findings. Exact limits, typed stop reasons, fake-clock boundaries, and pair-based no-progress resets matched the task brief.
+- **Quality review:** A different independent GPT-5.6 Sol reviewer initially found mutable stop reasons, an implicit nil-clock panic, and a re-entrant clock deadlock risk. After the review fix, the reviewer returned **Approved** with no Critical or Important findings. One Minor remains recorded for final branch review: the re-entrant regression test uses a 200 ms timeout that could be tight on an unusually slow CI worker.
+- **Verification:** Focused tests, `go test -race ./internal/budget -count=1`, `go test ./... -count=1`, `go vet ./...`, `gofmt -l internal`, and `git diff --check` passed on `d015fb5`.
+- **Human intervention:** None beyond the earlier authorization to continue autonomous project progress.
+- **Lesson:** Dependency injection boundaries must not call external callbacks while holding internal locks, and typed errors must not expose mutable state that can contradict their sentinel identity.
+
+## 2026-07-24 — Course Requirements and Task 4 Plan Reconciliation
+
+- **Task:** TASK-4-SPEC-RECONCILIATION-001.
+- **Skills:** `superpowers:using-superpowers`, `superpowers:receiving-code-review`, `superpowers:writing-plans`.
+- **Context:** The final Tasks 2–4 review was checked against both course requirement documents and the approved `SPEC.md` before accepting or rejecting each finding.
+- **Decision:** Confirmed three Task 4 boundary defects: missing configuration defaults/validation for SPEC §4.7, run-global rather than per-decision protocol repairs, and a Boolean progress API unable to emit the required changed-diff warning. Confirmed three separate Task 3 architecture defects but deferred them to a post-pause integration gate.
+- **Key output:** Amended `PLAN.md` with explicit failing tests, minimal implementation behavior, fresh two-stage review, and a hard pause after Task 4. Recorded that `SPEC.md` itself remains authoritative and unchanged.
+- **Human intervention:** The student requested SPEC confirmation, plan correction, completion of Task 4, and a pause immediately afterward.
+- **Lesson:** A prior task-level approval does not override a later whole-branch finding when the approved SPEC states a stricter observable contract; remediation scope should follow task ownership rather than mixing architecture work into an unrelated task.
+
+## 2026-07-24 - Task 4 SPEC-Alignment Remediation
+
+- **Task:** TASK-4-SPEC-ALIGNMENT-001 (implementation phase; review and completion markers remain pending).
+- **Skill:** `superpowers:test-driven-development`.
+- **Scope:** Task 2 Step 8 and Task 4 Steps 5-7 only: configured budget defaults/validation, per-decision-point protocol-repair allowance, typed progress outcomes, and the re-entrant clock timeout correction.
+- **Red evidence:** After adding the focused tests and before modifying production code, `go test ./internal/config ./internal/budget -count=1` failed. The config package reported `undefined: config.ErrInvalidBudget`; the budget package reported `undefined: ProgressOutcome`, `ProgressContinue`, `ProgressWarning`, and `ProgressStop`. These failures directly identify the missing SPEC-aligned contracts rather than a test setup or environment failure.
+- **Green evidence:** The focused config/budget command passed after the minimum implementation. `go test -race ./internal/config ./internal/budget -count=1`, `go test ./... -count=1`, `go vet ./...`, `gofmt -l internal`, `git diff --check`, and a `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...` cross-compilation also passed.
+- **Implementation:** `config.Load` now decodes into the four SPEC defaults and rejects every resolved non-positive count or malformed/non-positive wall-clock value with `ErrInvalidBudget`. A successful `Tracker.RecordDecision` resets only the current decision point's protocol-repair usage. `ProgressDetector.Observe` now returns the typed outcomes `continue`, `warning`, and `stop`, with a warning for the same failure plus a changed diff. The re-entrant clock test timeout is 2 seconds.
+- **Review hardening:** The first fresh SPEC review approved the diff with no findings. The fresh quality review found that the already-correct rejected-decision path lacked regression coverage, so a test now proves a failed `RecordDecision` neither clears current protocol-repair usage nor reopens an exhausted allowance. The review also prompted clarification that `Usage.ProtocolRepairs` is current-decision-point usage and a broader budget sentinel message that covers malformed durations.
+- **Scope verification:** Only `internal/config`, `internal/budget`, and this log changed. Task 3 store code, `go.mod`, `go.sum`, Task 5, and PLAN completion markers were not modified.
+- **Human intervention:** The student confirmed the SPEC reconciliation, requested the plan update, and required a pause after Task 4.
+- **Concern:** None within the Task 4 scope; the separately documented Task 3 architecture gate remains intentionally deferred.
+
+## 2026-07-24 — Task 4 SPEC-Alignment Review and Pause
+
+- **Task:** TASK-4-SPEC-ALIGNMENT-REVIEW-001.
+- **Skills:** `superpowers:subagent-driven-development`, `superpowers:requesting-code-review`, `superpowers:receiving-code-review`, `superpowers:verification-before-completion`.
+- **Implementation commit:** `994530d` (`fix: align Task 4 budget semantics with spec`).
+- **SPEC review:** A fresh reviewer compared the diff with the course documents, `SPEC.md` §4.7/§6.1, and the corrected plan. Result: **Approved**, with no Critical, Important, or Minor findings.
+- **Quality review:** A different fresh reviewer requested one Important regression test proving a rejected decision cannot reset or reopen the current protocol-repair allowance, plus two documentation/error-message clarifications. After those corrections, re-review result: **Approved**, with no remaining findings.
+- **Verification:** The controller's fresh final gate passed: `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, and Linux amd64 CGO-disabled `go build ./...`.
+- **Pause boundary:** Task 4 is complete. The confirmed Task 3 architecture issues remain unchecked in the post-Task-4 integration gate; no Task 3 remediation, Task 5 implementation, dependency tidy, branch publication, or PR-readiness claim was performed.
+- **Lesson:** Per-decision counters need tests for both successful boundary transitions and rejected transitions; otherwise a future reset-before-validation regression can silently turn a bounded repair loop into an unbounded one.
+
+## 2026-07-27 — Post-Task-4 Store Architecture Gate
+
+- **Task:** CONFIG-STORE-BUDGET-INTEGRATION-GATE-001.
+- **Skills:** `superpowers:using-superpowers`, `superpowers:brainstorming` (resume context only; prior approved SPEC/PLAN satisfied the design gate), `superpowers:executing-plans`, `superpowers:using-git-worktrees`, `superpowers:test-driven-development`, `superpowers:systematic-debugging`, `superpowers:requesting-code-review`, `superpowers:receiving-code-review`, `superpowers:verification-before-completion`.
+- **Context:** Resumed after the explicit Task 4 pause. `PLAN.md` required the deferred Task 3 architecture gate before declaring `config-store-budget` PR-ready or starting Task 5.
+- **Red evidence:** Added tests first for the new `internal/storeport` boundary, already-cancelled context parity, and injected store clocks. Focused RED command:
+  `go test ./internal/storeport ./internal/store -run 'TestStorePort|TestStoresHonorAlreadyCancelledContextsWithoutMutation|TestStoresUseInjectedClockForEventTimestampsAndHashes' -v`
+  failed because `internal/storeport` had no non-test Go files and `internal/store` could not compile after tests were migrated to `storeport.Store`.
+- **Implementation:** Added `internal/storeport` with the `Store` port and shared sentinel errors; kept memory/SQLite adapters in `internal/store`; changed both stores to use constructor-level clocks for event creation; made every public store operation return an already-cancelled context before mutation; moved store errors to `storeport`; and ran `go mod tidy`, which made `modernc.org/sqlite` a direct dependency.
+- **Green evidence:** The same focused command passed for `storeport` and both store implementations. Full local gate passed with exit code 0:
+  `go test ./... -count=1; go test -race ./... -count=1; go vet ./...; go mod verify; gofmt -l internal; git diff --check`.
+  Linux amd64 cross gate also passed with exit code 0: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`, followed by `go test -c` for all packages into `.superpowers/sdd/cross`.
+- **Environment note:** Sandboxed Go 1.26.5 repeatedly printed `error acquiring upload token` for `C:\Users\12155\AppData\Roaming\go\telemetry\local\upload.token` even when tests/builds exited 0. `GOPATH`, `GOCACHE`, and `GOMODCACHE` were redirected to `.superpowers/sdd` so module downloads and checksum state stayed inside the workspace; the telemetry warning did not correspond to a test, vet, module, or build failure.
+- **Reviews:** Fresh SPEC reviewer `019fa19b-7b7d-7bd3-a12a-5d1f34ee1f58` found no Critical issues and one Important documentation issue: `PLAN.md` still pointed future consumers at `store.Store`. Fresh code-quality reviewer `019fa19b-b267-71c2-8c49-f5fce5d5ea66` found no Critical code blockers and the same Important plan/staging issue. `PLAN.md` now includes `internal/storeport/`, updates Task 3 and Task 14 snippets to `storeport.Store`, checks the integration-gate items, and records `internal/storeport` in the planned stage command.
+- **Minor review notes deferred:** The nil-clock panic message is not separately locked by a test, `Clock.Now()` is still expected to be a simple clock and is called while memory holds its mutex / SQLite holds a transaction, and the injected-clock test checks returned events rather than reloading them via `ListEvents`. These were classified as Minor/Nice-to-have and did not block the gate.
+- **Human intervention:** The user asked to continue from the documents and Superpowers. No product behavior beyond the already-approved SPEC/PLAN was selected during this gate.
+- **Lesson:** Architecture gates need plan repair as much as code repair; otherwise future tasks can accidentally rebuild against the concrete adapter package and undo the intended dependency boundary.
+
+## 2026-07-27 - PR #2 CodeRabbit Follow-up
+
+- **Task:** PR-2-CODERABBIT-FOLLOWUP-001.
+- **Skills:** `superpowers:receiving-code-review`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`, `github:gh-address-comments`.
+- **Review intake:** CodeRabbit reported five actionable comments and three nitpicks on PR #2. Each finding was checked against the current `config-store-budget` diff before changing code.
+- **Red evidence:** Added `TestSQLiteDSNNormalizesRelativePaths` before changing `sqliteDSN`; it failed because `sqliteDSN("state/runs.db")` produced `file://state/runs.db?...` with host `state`.
+- **Implementation:** Replaced SQLite setup and trigger calls with context-aware database methods; normalized relative SQLite paths to absolute file URIs while preserving DSN pragmas; propagated `ListEvents` `rows.Close` errors; replaced deprecated TOML decoding; documented the single-connection hash-chain dependency and lock-free `CheckTime` invariant; reconciled `SPEC_PROCESS.md` with the completed deferred gate in `PLAN.md`.
+- **Verification:** Focused config/budget/store tests, full `go test ./... -count=1`, `go test -race ./... -count=1`, `go vet ./...`, `go mod verify`, `gofmt -l internal`, `git diff --check`, Linux amd64 `go build ./...`, and Linux amd64 test-binary compilation all exited 0. The Go tool still printed the pre-existing telemetry upload-token warning on this Windows machine.
+- **GitHub writes:** No review-thread replies, resolutions, or comments were posted; only the branch code will be updated after local verification.

@@ -1,0 +1,21 @@
+version = 1
+default_profile = "workspace-auto"
+
+[budget]
+max_decisions = 30
+max_mutations = 5
+max_protocol_repairs = 2
+wall_clock = "20m"
+
+[[validation]]
+id = "unit-test"
+kind = "targeted-test"
+executable = "go"
+args = ["test", "./..."]
+working_directory = "."
+timeout = "2m"
+max_output_bytes = 262144
+required = true
+
+[validation.windows]
+executable = "go.exe"

@@ -232,3 +232,15 @@ The snapshot contained an exact four-file pre-implementation tree. Its recovered
 The original commit objects `137fe2f` and `7e9c1a8` were not present in the surviving object store and cannot be truthfully recreated with their original hashes. The exact document blobs were committed into a new repository history as `87482f1` (`docs: restore project planning baseline`) with the original GitHub remote restored.
 
 Before resuming the workflow, a recovery self-review strengthened Task 2 of `PLAN.md`: every stated configuration validator now has an explicit red-test requirement, timeout parsing must reject non-positive durations, target-OS resolution must propagate validation errors, and two independent reviews are required before commit. A provider-shaped test token was also replaced by an unmistakable canary marker to avoid secret-scanner false positives. These clarifications do not change the approved product scope.
+
+## 11. Course-Requirement Reconciliation Before Task 4 Closure
+
+On 2026-07-24, the course-wide requirements and the Coding Agent Harness-specific requirements were reread together with `SPEC.md` after the final Tasks 2–4 branch review. The course documents require core harness mechanisms to be implemented as deterministic code, injectable behind explicit boundaries, and testable with mock/stub dependencies without a real LLM. `SPEC.md` already turns those requirements into objective Task 4 contracts:
+
+- §4.7 fixes defaults of 30 decisions, 5 mutation/validation cycles, 20 minutes, and 2 immediate protocol repairs per decision point.
+- §4.7 requires the same failure with a changed substantive diff to be recorded as a warning rather than an immediate no-progress stop.
+- §6.1 requires storage and clock implementations to be injected at the composition root.
+
+The reconciliation therefore confirmed that `SPEC.md` does not need a product-scope revision. It did identify plan/implementation drift: Task 2 did not plan validation/defaulting for budget fields, and Task 4's Boolean progress result could not represent the required warning while protocol repairs were counted across the whole run rather than per decision point. `PLAN.md` now adds a red-green Task 4 alignment sequence covering those three defects.
+
+The same review confirmed three Task 3 integration defects: memory-store context cancellation parity, co-location of the store port with the SQLite adapter, and direct wall-clock use during event creation. They were recorded in a post-Task-4 deferred gate rather than mixed into Task 4. That gate has now been completed before branch publication: `PLAN.md` records the store-port extraction, cancelled-context parity, injected event clock, dependency tidying, verification gates, and fresh reviews as complete. The approved execution boundary remains to finish Task 4 and the deferred gate before any Task 5 work.
