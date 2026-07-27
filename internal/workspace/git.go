@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -8,16 +9,16 @@ import (
 )
 
 // GitBaseline returns the current repository revision and porcelain status.
-func GitBaseline(root string) (map[string]string, error) {
+func GitBaseline(ctx context.Context, root string) (map[string]string, error) {
 	root, err := ResolveRoot(root)
 	if err != nil {
 		return nil, err
 	}
-	head, err := gitOutput(root, "rev-parse", "HEAD")
+	head, err := gitOutput(ctx, root, "rev-parse", "HEAD")
 	if err != nil {
 		return nil, err
 	}
-	status, err := gitOutput(root, "status", "--porcelain=v1")
+	status, err := gitOutput(ctx, root, "status", "--porcelain=v1")
 	if err != nil {
 		return nil, err
 	}
@@ -33,8 +34,8 @@ func ResolveRoot(root string) (string, error) {
 	return resolved, nil
 }
 
-func gitOutput(root string, args ...string) (string, error) {
-	command := exec.Command("git", args...)
+func gitOutput(ctx context.Context, root string, args ...string) (string, error) {
+	command := exec.CommandContext(ctx, "git", args...)
 	command.Dir = root
 	output, err := command.Output()
 	if err != nil {

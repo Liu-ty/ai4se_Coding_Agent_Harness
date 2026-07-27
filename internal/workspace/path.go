@@ -42,6 +42,13 @@ func Resolve(root, relative string) (string, error) {
 	if !inside {
 		return "", ErrOutsideRoot
 	}
+	resolvedRel, err := filepath.Rel(canonicalRoot, canonicalCandidate)
+	if err != nil {
+		return "", fmt.Errorf("compare workspace path: %w", err)
+	}
+	if protected(resolvedRel) {
+		return "", ErrProtectedPath
+	}
 	return canonicalCandidate, nil
 }
 
@@ -80,12 +87,9 @@ func isAbsolute(path string) bool {
 }
 
 func protected(path string) bool {
-	clean := strings.ToLower(filepath.ToSlash(path))
-	if clean == ".git" || strings.HasPrefix(clean, ".git/") {
-		return true
-	}
+	clean := strings.ToLower(filepath.ToSlash(filepath.Clean(path)))
 	for _, part := range strings.Split(clean, "/") {
-		if strings.HasPrefix(part, ".env") || strings.Contains(part, "secret") || strings.Contains(part, "credential") || strings.Contains(part, "vault") {
+		if part == ".git" || strings.HasPrefix(part, ".env") || strings.Contains(part, "secret") || strings.Contains(part, "credential") || strings.Contains(part, "vault") {
 			return true
 		}
 	}

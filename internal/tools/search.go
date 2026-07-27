@@ -123,7 +123,7 @@ func walkAllFiles(ctx context.Context, root string) ([]string, bool, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if entry.IsDir() && (rel == ".git" || strings.HasPrefix(rel, ".git/")) {
+		if entry.IsDir() && isGitDirectory(rel) {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
@@ -167,7 +167,7 @@ func boundedFiles(ctx context.Context, root string, limit int) ([]string, bool, 
 		next := pending[0]
 		pending = pending[1:]
 		if next.isDir {
-			if next.rel == ".git/" || strings.HasPrefix(next.rel, ".git/") {
+			if isGitDirectory(next.rel) {
 				continue
 			}
 			if _, err := workspace.Resolve(root, strings.TrimSuffix(next.rel, "/")); err != nil {
@@ -189,6 +189,16 @@ func boundedFiles(ctx context.Context, root string, limit int) ([]string, bool, 
 		}
 	}
 	return paths, false, nil
+}
+
+func isGitDirectory(rel string) bool {
+	clean := strings.TrimSuffix(filepath.ToSlash(rel), "/")
+	for _, part := range strings.Split(clean, "/") {
+		if part == ".git" {
+			return true
+		}
+	}
+	return false
 }
 
 func readDirectory(root, relative string) ([]pendingPath, error) {

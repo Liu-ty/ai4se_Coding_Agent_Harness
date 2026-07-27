@@ -37,7 +37,9 @@ func parsePatchHeaders(patch string, limits PatchLimits) (patchHeaders, error) {
 		}
 
 		switch {
-		case strings.HasPrefix(line, "rename from "), strings.HasPrefix(line, "rename to "), strings.HasPrefix(line, "similarity index "):
+		case strings.HasPrefix(line, "rename from "), strings.HasPrefix(line, "rename to "), strings.HasPrefix(line, "similarity index "),
+			strings.HasPrefix(line, "old mode "), strings.HasPrefix(line, "new mode "),
+			strings.HasPrefix(line, "new file mode "), strings.HasPrefix(line, "deleted file mode "):
 			return patchHeaders{}, ErrInvalidPatch
 		case strings.HasPrefix(line, "--- "):
 			if oldPath != "" || (len(result.paths) > 0 && !currentHasHunk) {

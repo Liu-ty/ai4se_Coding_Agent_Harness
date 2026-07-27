@@ -18,11 +18,28 @@ func TestResolveRejectsParentEscape(t *testing.T) {
 }
 
 func TestResolveRejectsProtectedPaths(t *testing.T) {
-	for _, path := range []string{".git/config", ".env", "secrets/token.txt"} {
+	for _, path := range []string{".git/config", "nested/.git/config", ".env", "secrets/token.txt"} {
 		_, err := workspace.Resolve(t.TempDir(), path)
 		if !errors.Is(err, workspace.ErrProtectedPath) {
 			t.Fatalf("Resolve(%q) error = %v", path, err)
 		}
+	}
+}
+
+func TestResolveRejectsSymlinkToProtectedPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "vault"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "vault"), filepath.Join(root, "safe")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink creation is unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	_, err := workspace.Resolve(root, "safe/token.txt")
+	if !errors.Is(err, workspace.ErrProtectedPath) {
+		t.Fatalf("got %v", err)
 	}
 }
 

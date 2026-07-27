@@ -84,6 +84,7 @@ func TestPatchRejectsUnsafeFormsAndLimits(t *testing.T) {
 		{"delete", "--- a/a.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n", tools.ErrInvalidPatch},
 		{"rename", "rename from a.txt\nrename to b.txt\n--- a/a.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-old\n+new\n", tools.ErrInvalidPatch},
 		{"binary", "--- a/a.txt\n+++ b/a.txt\nGIT binary patch\n", tools.ErrInvalidPatch},
+		{"mode change", "old mode 100644\nnew mode 100755\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n", tools.ErrInvalidPatch},
 		{"protected", "--- a/.env\n+++ b/.env\n@@ -1 +1 @@\n-old\n+new\n", tools.ErrProtectedPath},
 	} {
 		t.Run(test.name, func(t *testing.T) {

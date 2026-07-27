@@ -94,11 +94,22 @@ func (t patchTool) Execute(ctx context.Context, raw json.RawMessage) (Result, er
 	}
 	diff, err := t.git.run(ctx, t.root, []string{"diff", "--binary"}, nil)
 	if err != nil {
-		return Result{}, fmt.Errorf("git diff --binary: %w", err)
+		return Result{}, t.recoverAfterDiffFailure(ctx, patch, before, err)
 	}
 	digest := sha256.Sum256(diff)
 	data, _ := json.Marshal(paths)
 	return Result{Code: "PATCH", Data: data, SHA256: hex.EncodeToString(digest[:])}, nil
+}
+
+func (t patchTool) recoverAfterDiffFailure(ctx context.Context, patch []byte, before map[string][32]byte, diffErr error) error {
+	rollbackCtx := context.WithoutCancel(ctx)
+	if _, err := t.git.run(rollbackCtx, t.root, []string{"apply", "-R", "--whitespace=nowarn", "-"}, patch); err != nil {
+		return fmt.Errorf("%w: git diff --binary: %v; reverse apply: %v", ErrPatchAtomicityBreach, diffErr, err)
+	}
+	if !unchanged(before) {
+		return fmt.Errorf("%w: git diff --binary: %v; mutation remains after reverse apply", ErrPatchAtomicityBreach, diffErr)
+	}
+	return fmt.Errorf("%w: git diff --binary: %v", ErrPatchConflict, diffErr)
 }
 
 func (t patchTool) prepare(paths []string) ([]string, map[string][32]byte, error) {

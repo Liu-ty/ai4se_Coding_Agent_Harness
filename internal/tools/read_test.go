@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
@@ -93,6 +94,45 @@ func TestListReturnsGloballySortedPrefixForNestedPaths(t *testing.T) {
 	var paths []string
 	if err := json.Unmarshal(got.Data, &paths); err != nil || len(paths) != 1 || paths[0] != "a.txt" {
 		t.Fatalf("paths = %q, %v", paths, err)
+	}
+}
+
+func TestListAndSearchSkipNestedGitDirectories(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "nested", ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "visible.txt"), []byte("visible"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nested", ".git", "config"), []byte("needle"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := tools.NewListTool(root, 10).Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	if err := json.Unmarshal(list.Data, &paths); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		if strings.Contains(path, ".git") {
+			t.Fatalf("listed nested git path: %q in %q", path, paths)
+		}
+	}
+
+	search, err := tools.NewSearchTool(root, 10).Execute(context.Background(), json.RawMessage(`{"query":"needle"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var matches []tools.SearchMatch
+	if err := json.Unmarshal(search.Data, &matches); err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("searched nested git path: %#v", matches)
 	}
 }
 
