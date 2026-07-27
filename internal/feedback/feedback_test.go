@@ -130,6 +130,56 @@ func TestProcessPreservesExecutorOutputTruncation(t *testing.T) {
 	}
 }
 
+func TestProcessSurfacesInvalidClassifierRule(t *testing.T) {
+	got := feedback.Pipeline{}.Process(feedback.Input{
+		StageID: "custom",
+		Code:    executor.CodeExit,
+		Observation: domain.Observation{
+			Code:     executor.CodeExit,
+			ExitCode: intp(1),
+			Stdout:   "ordinary validation failure",
+		},
+		Rules: []config.ClassifierRule{
+			{Category: "BROKEN", Pattern: "["},
+			{Category: "CUSTOM_FAILURE", Pattern: "ordinary"},
+		},
+	})
+	if got.Category != "CUSTOM_FAILURE" {
+		t.Fatalf("category = %q, want CUSTOM_FAILURE", got.Category)
+	}
+	var found bool
+	for _, evidence := range got.Evidence {
+		if evidence.Source == "classifier" && strings.Contains(evidence.Message, `invalid classifier rule "BROKEN"`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("invalid classifier diagnostic not surfaced: %#v", got.Evidence)
+	}
+}
+
+func TestProcessBoundsClassifierDiagnosticsWithEvidence(t *testing.T) {
+	got := feedback.Pipeline{MaxEvidence: 2, MaxSummaryBytes: 100}.Process(feedback.Input{
+		StageID: "custom",
+		Code:    executor.CodeExit,
+		Observation: domain.Observation{
+			Code:     executor.CodeExit,
+			ExitCode: intp(1),
+			Stdout:   "ordinary validation failure",
+		},
+		Rules: []config.ClassifierRule{
+			{Category: "BROKEN_ONE", Pattern: "["},
+			{Category: "BROKEN_TWO", Pattern: "("},
+		},
+	})
+	if len(got.Evidence) != 2 {
+		t.Fatalf("evidence count = %d, want 2: %#v", len(got.Evidence), got.Evidence)
+	}
+	if !got.OutputTruncated {
+		t.Fatalf("bounded classifier diagnostics not marked truncated: %#v", got)
+	}
+}
+
 func input(stageID, code, text string, exitCode int) feedback.Input {
 	return feedback.Input{
 		StageID: stageID,
