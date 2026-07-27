@@ -188,15 +188,32 @@ func TestExecutorExternalDeadlineIsTimeout(t *testing.T) {
 	heartbeat := filepath.Join(dir, "heartbeat")
 	spec := helperSpec(t, "spawn-child", heartbeat)
 	spec.Timeout = 0
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 
-	got, err := executor.NewLocal().Run(ctx, spec)
-	if err != nil {
-		t.Fatalf("run after external deadline: %v", err)
-	}
-	if got.Code != executor.CodeTimeout {
-		t.Fatalf("code = %q, want %q; observation=%#v", got.Code, executor.CodeTimeout, got)
+	done := make(chan struct {
+		obsCode string
+		err     error
+	}, 1)
+	go func() {
+		got, err := executor.NewLocal().Run(ctx, spec)
+		done <- struct {
+			obsCode string
+			err     error
+		}{obsCode: got.Code, err: err}
+	}()
+
+	waitForHeartbeat(t, heartbeat)
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("run after external deadline: %v", result.err)
+		}
+		if result.obsCode != executor.CodeTimeout {
+			t.Fatalf("code = %q, want %q", result.obsCode, executor.CodeTimeout)
+		}
+	case <-time.After(7 * time.Second):
+		t.Fatal("executor did not return after external deadline")
 	}
 	assertHeartbeatStopped(t, heartbeat)
 }
