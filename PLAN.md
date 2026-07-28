@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Foundation PR #1 is merged at `6cad5d1`, `config-store-budget` PR #2 is merged at `712f257`, and `policy-tools` PR #3 is merged at `b4cab7c`. Executor-feedback PR #4 was merged at `085933e` before three review threads were resolved; Tasks 8-10 are complete through the remediation Draft PR #6 branch at `5ffc0d5`. Task 11 has not started.
+**Status:** Foundation PR #1 is merged at `6cad5d1`, `config-store-budget` PR #2 is merged at `712f257`, and `policy-tools` PR #3 is merged at `b4cab7c`. Executor-feedback PR #4 was merged early at `085933e`; its remediation PR #6 was subsequently reviewed and merged at `16e982c` with final head `790e38c`. All three inherited PR #4 threads and all five PR #6 threads are resolved. Duplicate Draft PR #5 is closed as superseded with its head branch retained. Tasks 8-10 are complete, and Task 11 has not started.
 
-PR #4's early merge is retained as an auditable process deviation. Draft PR #6 repairs the three inherited review gaps, adds Windows/Linux runtime CI and unsupported-platform rejection gates, and incorporates the follow-up output-drain and checkout-credential review findings. Both push and pull-request CI runs passed on `5ffc0d5`; fresh independent specification and code-quality reviews returned Approved/Ready with no Critical or Important findings. CodeRabbit auto-resolved the checkout-credential thread, while its executor-drain thread remains unresolved because the incremental re-review was rate-limited; the thread's behavior is covered by deterministic RED/GREEN tests and the independent reviews, and no agent replied to or resolved it.
+PR #4's early merge remains an auditable process deviation rather than being rewritten as a normal review closure. PR #6 repaired the three inherited review gaps, added Windows/Linux runtime CI and unsupported-platform rejection gates, and incorporated all follow-up output-drain, cleanup, credential-persistence, and documentation findings. Before merge, fresh Windows verification passed, both required GitHub Actions checks were green, CodeRabbit completed its final review, and every PR #6 thread was resolved. On 2026-07-28, each legacy PR #4 thread received a closure reply linking the remediation evidence and was then resolved. PR #5 contained no unique changes beyond the superseded PR #4 head and was closed without deleting its branch.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -778,7 +778,7 @@ git commit -m "feat: apply bounded atomic code patches"
 
 ---
 
-### Task 8: Cross-Platform Restricted Process Executor — complete (`9cba047`; remediation through `5ffc0d5`)
+### Task 8: Cross-Platform Restricted Process Executor — complete (`9cba047`; remediation merged via PR #6 at `16e982c`, head `790e38c`)
 
 **Files:**
 - Create: `internal/executor/executor.go`
@@ -840,7 +840,7 @@ git commit -m "feat: execute bounded checks across platforms"
 
 ---
 
-### Task 9: Ordered Validation Pipeline — complete (`805cd1b`; remediation through `5ffc0d5`)
+### Task 9: Ordered Validation Pipeline — complete (`805cd1b`; remediation merged via PR #6 at `16e982c`, head `790e38c`)
 
 **Files:**
 - Create: `internal/validation/pipeline.go`
@@ -907,7 +907,7 @@ git commit -m "feat: add staged validation pipeline"
 
 ---
 
-### Task 10: Deterministic Feedback Pipeline — complete (`8caa1f5`; remediation `2ee1114`, `d045e6e`)
+### Task 10: Deterministic Feedback Pipeline — complete (`8caa1f5`; remediation `2ee1114`, `d045e6e`, merged via PR #6 at `16e982c`)
 
 **Files:**
 - Create: `internal/feedback/normalize.go`
