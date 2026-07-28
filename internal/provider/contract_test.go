@@ -50,6 +50,19 @@ func TestOpenAIContractUsesCanonicalPathAndBearerAuthentication(t *testing.T) {
 	assertDecision(t, got, err)
 }
 
+func TestOpenAIDoesNotDuplicateV1EndpointPrefix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("path=%q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": canonicalDecision()}}}})
+	}))
+	defer srv.Close()
+	got, err := provider.NewOpenAI(srv.URL+"/v1", srv.Client(), credentials{}).Decide(context.Background(), canonicalRequest())
+	assertDecision(t, got, err)
+}
+
 func TestAnthropicContractUsesCanonicalPathAndKeyHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages" || r.Header.Get("x-api-key") != canaryKey || r.Header.Get("anthropic-version") == "" {

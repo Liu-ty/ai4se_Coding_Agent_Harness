@@ -192,6 +192,25 @@ func TestLoopStopsOnRepeatedFailureWithoutDiffProgress(t *testing.T) {
 	assertEvents(t, mem, run.ID, "ValidationFailed", "RunStopped")
 }
 
+func TestReviewFinishCompletesWithoutValidation(t *testing.T) {
+	run := newRun()
+	run.Profile = domain.ProfileReview
+	mem := store.NewMemory()
+	if err := mem.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	loop := agent.New(agent.Dependencies{Store: mem, Provider: provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
+		return provider.Response{Decision: decision(action("finish", `{}`))}, nil
+	}), Actions: runner{}, Policy: policy.NewEngine(), Feedback: feedback.Pipeline{}, Validation: panicChecks{t}, Budget: budget.New(budget.Limits{MaxDecisions: 1, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute}, fixedClock{})})
+	got, err := loop.Run(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != domain.StateReviewComplete {
+		t.Fatalf("result=%#v", got)
+	}
+}
+
 func action(kind, args string) domain.Action {
 	return domain.Action{Kind: kind, Args: json.RawMessage(args)}
 }
@@ -224,6 +243,21 @@ func (r *countingRunner) Execute(context.Context, domain.Action) (agent.ActionRe
 }
 
 type checks struct{ results []agent.ValidationResult }
+
+type panicChecks struct{ t *testing.T }
+
+func (p panicChecks) Baseline(context.Context, domain.Run) agent.ValidationResult {
+	p.t.Fatal("baseline called")
+	return agent.ValidationResult{}
+}
+func (p panicChecks) Current(context.Context, domain.Run) agent.ValidationResult {
+	p.t.Fatal("current called")
+	return agent.ValidationResult{}
+}
+func (p panicChecks) Final(context.Context, domain.Run) agent.ValidationResult {
+	p.t.Fatal("final called")
+	return agent.ValidationResult{}
+}
 
 func (c *checks) Baseline(context.Context, domain.Run) agent.ValidationResult { return fail("unit") }
 func (c *checks) Current(context.Context, domain.Run) agent.ValidationResult {

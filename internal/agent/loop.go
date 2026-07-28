@@ -127,6 +127,15 @@ func (l *Loop) Run(ctx context.Context, run domain.Run) (Result, error) {
 			return Result{}, err
 		}
 		if action.Kind == "finish" {
+			if run.Profile == domain.ProfileReview {
+				if err := l.transition(ctx, &run, domain.StateDeciding, "ReviewFinish"); err != nil {
+					return Result{}, err
+				}
+				if err := l.transition(ctx, &run, domain.StateReviewComplete, "ReviewComplete"); err != nil {
+					return Result{}, err
+				}
+				return Result{State: run.State}, nil
+			}
 			if err := l.transition(ctx, &run, domain.StateValidating, "FinishRequested"); err != nil {
 				return Result{}, err
 			}

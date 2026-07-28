@@ -55,7 +55,12 @@ func (p *httpProvider) post(ctx context.Context, path string, body io.Reader, he
 		}
 	}()
 	u := *p.endpoint
-	u.Path = strings.TrimRight(u.Path, "/") + path
+	basePath := strings.TrimRight(u.Path, "/")
+	if basePath != "" && strings.HasPrefix(path, basePath+"/") {
+		u.Path = path
+	} else {
+		u.Path = basePath + path
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), body)
 	if err != nil {
 		return nil, ErrTransport
