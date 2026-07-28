@@ -173,6 +173,31 @@ func TestVaultStatusAndDeleteDoNotExposeCredential(t *testing.T) {
 	}
 }
 
+func TestVaultStatusDoesNotRequestMasterPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.bin")
+	ref := credentials.Ref{Provider: "openai", Host: "api.openai.com"}
+	vault := credentials.NewVault(path, passwordCallback(masterPassword))
+	if err := vault.Set(context.Background(), ref, []byte(canarySecret)); err != nil {
+		t.Fatal(err)
+	}
+
+	passwordCalls := 0
+	statusOnly := credentials.NewVault(path, func() ([]byte, error) {
+		passwordCalls++
+		return nil, errors.New("password must not be requested for status")
+	})
+	status, err := statusOnly.Status(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !status.Configured || status.Backend != "vault" || status.UpdatedAt.IsZero() {
+		t.Fatalf("status = %#v", status)
+	}
+	if passwordCalls != 0 {
+		t.Fatalf("password callback calls = %d, want 0", passwordCalls)
+	}
+}
+
 func TestVaultRepeatedOperationsDoNotMutateBorrowedPasswordBuffer(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.bin")
 	ref := credentials.Ref{Provider: "openai", Host: "api.openai.com"}

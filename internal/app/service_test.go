@@ -746,6 +746,28 @@ func TestApprovedActionCanBeCancelledWithoutBlockingAnotherRun(t *testing.T) {
 	}
 }
 
+func TestBusyApprovalDoesNotRevokeExistingSameDigestGrant(t *testing.T) {
+	runID := domain.RunID("run-busy-approval")
+	digest := policy.ApprovalDigest("same-digest")
+	approvals := policy.NewApprovalStore()
+	approvals.Grant(digest)
+	session := &agentLoopSession{
+		approvals: approvals,
+		ctx:       context.Background(),
+		active:    make(chan struct{}),
+	}
+	controller := &agentLoopController{
+		sessions: map[domain.RunID]*agentLoopSession{runID: session},
+	}
+
+	if err := controller.Approve(context.Background(), runID, string(digest)); !errors.Is(err, ErrLoopSessionBusy) {
+		t.Fatalf("approve error = %v, want ErrLoopSessionBusy", err)
+	}
+	if !approvals.Consume(digest) {
+		t.Fatal("busy approval revoked an existing same-digest grant")
+	}
+}
+
 func TestNewLocalRejectsNilLoopFactory(t *testing.T) {
 	_, err := NewLocal(
 		context.Background(), store.NewMemory(), nil, configuredCredentials(t), t.TempDir(),
