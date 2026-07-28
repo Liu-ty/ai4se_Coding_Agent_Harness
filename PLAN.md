@@ -1103,6 +1103,8 @@ git commit -m "feat: connect OpenAI-compatible and Anthropic providers"
 
 ### Task 13: OS Keyring and Encrypted Vault Credentials — complete (this commit)
 
+**PR #9 unresolved-thread follow-up:** Vault status now checks record presence and modification time without requesting the master password, deriving an Argon2id key, or decrypting credential bytes. Actual credential use still performs full authenticated decryption and endpoint binding.
+
 **Files:**
 - Create: `internal/credentials/store.go`
 - Create: `internal/credentials/keyring.go`
@@ -1185,6 +1187,8 @@ git commit -m "feat: store provider credentials securely"
 **Final review remediation:** Credentials may be sent only to HTTPS endpoints or literal loopback-IP HTTP endpoints; non-default endpoint hosts/ports require explicit confirmation. Repository ownership uses a durable, owner-matched cross-process lease and startup recovery releases only the matching abandoned lease. Agent approval digests include captured baseline commit/diff values, and resumed validation failures return structured feedback to re-decision.
 
 **PR #9 remediation:** Vault rolls back a secret when its keyring status marker cannot be written, closes reads explicitly, and syncs the parent directory before reporting a committed post-replacement permission failure; native Windows tests verify a protected, non-inherited DACL. Nonterminal approval errors revoke their one-use grant, lease release is serialized through read/verify/remove cleanup, and empty local-loop checks return failed validation instead of panicking. CI verifies the canonical checkout root.
+
+**PR #9 unresolved-thread follow-up:** Approval grants are created and revoked only inside a successfully admitted session invocation. A concurrent same-digest request that receives `ErrLoopSessionBusy` cannot delete the legitimate invocation's unconsumed grant.
 
 **Files:**
 - Create: `internal/app/service.go`

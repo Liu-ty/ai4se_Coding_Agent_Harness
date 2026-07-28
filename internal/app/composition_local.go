@@ -95,13 +95,14 @@ func (c *agentLoopController) Approve(
 		return err
 	}
 	approvalDigest := policy.ApprovalDigest(digest)
-	session.approvals.Grant(approvalDigest)
 	result, err := session.invoke(func(runCtx context.Context) (agent.Result, error) {
-		return session.loop.ResumeApproval(runCtx, runID, approvalDigest)
+		session.approvals.Grant(approvalDigest)
+		result, resumeErr := session.loop.ResumeApproval(runCtx, runID, approvalDigest)
+		if resumeErr != nil && !terminal(result.State) {
+			session.approvals.Revoke(approvalDigest)
+		}
+		return result, resumeErr
 	})
-	if err != nil && !terminal(result.State) {
-		session.approvals.Revoke(approvalDigest)
-	}
 	if terminal(result.State) || (err != nil &&
 		!errors.Is(err, agent.ErrApprovalNotGranted) &&
 		!errors.Is(err, ErrLoopSessionBusy)) {

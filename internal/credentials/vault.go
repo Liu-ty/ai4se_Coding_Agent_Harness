@@ -162,19 +162,17 @@ func (v *Vault) Delete(ctx context.Context, ref Ref) error {
 }
 
 func (v *Vault) Status(ctx context.Context, ref Ref) (Status, error) {
-	normalized, err := normalizeRef(ref)
-	if err != nil {
-		return Status{}, ErrInvalidCredential
-	}
-	secret, err := v.Get(ctx, normalized)
-	if errors.Is(err, ErrNotFound) {
-		return Status{Ref: normalized, Backend: "vault"}, nil
-	}
-	if err != nil {
+	if err := contextError(ctx); err != nil {
 		return Status{}, err
 	}
-	clearBytes(secret)
+	normalized, err := normalizeRef(ref)
+	if err != nil || v == nil || v.path == "" {
+		return Status{}, ErrInvalidCredential
+	}
 	info, err := os.Stat(v.recordPath(normalized))
+	if errors.Is(err, os.ErrNotExist) {
+		return Status{Ref: normalized, Backend: "vault"}, nil
+	}
 	if err != nil {
 		return Status{}, ErrInvalidVault
 	}
