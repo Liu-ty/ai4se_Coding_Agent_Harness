@@ -16,7 +16,11 @@ import (
 )
 
 func TestExecutorCapturesSeparateStreamsAndExitCode(t *testing.T) {
-	got, err := executor.NewLocal().Run(context.Background(), helperSpec(t, "streams"))
+	spec := helperSpec(t, "streams")
+	// Windows GitHub-hosted runners can delay a newly created suspended process
+	// beyond the normal sub-second helper runtime; this is not a timeout test.
+	spec.Timeout = 10 * time.Second
+	got, err := executor.NewLocal().Run(context.Background(), spec)
 	if err != nil {
 		t.Fatalf("run streams: %v", err)
 	}
