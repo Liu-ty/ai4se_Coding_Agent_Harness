@@ -367,6 +367,15 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **GitHub writes:** Commit `ca12a83` was pushed to `origin/codex/policy-tools` for PR #3. This documentation/workspace follow-up records the pushed review closure in `PLAN.md` and this log.
 - **Workspace status:** After the CodeRabbit fix push, `git status --short --branch` reported `## codex/policy-tools...origin/codex/policy-tools`; no untracked or modified files remained before this documentation synchronization.
 
+## 2026-07-28 - Task 11: Provider-Neutral Agent Loop and Conditional Mock E2E
+
+- **Task:** Task 11 implementation only.
+- **Skills:** `superpowers:executing-plans`, `superpowers:using-git-worktrees`, `superpowers:test-driven-development`, `superpowers:systematic-debugging`, and `superpowers:verification-before-completion`.
+- **Red evidence:** The first focused agent test failed because the `internal/provider` port did not exist. Approval-resumption and no-progress tests then failed before their production dependencies were added.
+- **Implementation:** Added the normalized non-streaming provider port and concurrency-safe conditional mock; a project-owned one-action loop; bounded context assembly; typed boundary events; protocol-repair and budget handling; feedback-driven re-decision; final validation before success; cancellation persistence; no-progress detection; and one-use, exact pending-action approval recovery using the existing policy approval digest/store.
+- **Security and scope:** Approval recovery keeps pending actions in the loop process only and reuses the existing exact digest / one-use approval boundary. It adds no credential persistence, API, UI, application service, raw-shell executor, or third-party agent loop.
+- **Green evidence:** `go test ./internal/agent -v` passed conditional patch change, protocol exhaustion, approval one-use, final regression, cancellation, and no-progress coverage before task-level full verification.
+
 ## 2026-07-27 - Task 8: Cross-Platform Restricted Process Executor
 
 - **Task:** Task 8 implementation in worktree `F:\codes\ai4se-executor-feedback` on branch `codex/executor-feedback`.
