@@ -383,6 +383,10 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Implementation:** Added injected-client OpenAI-compatible and Anthropic Messages adapters over the Task 11 provider port. Requests use endpoint-bound credential lookup, the required vendor authentication headers, JSON-only responses, a 1 MiB response cap, bounded normalized errors, and cross-host redirect rejection. Credential byte slices are cleared after request construction and error values never contain request bodies or headers.
 - **Green evidence:** `go test ./internal/provider -v` passed OpenAI/Anthropic endpoint and header contracts, malformed/oversized response rejection, and the credential non-leak regression; `go test ./... -count=1` passed before task-level review.
 
+## 2026-07-28 - PR #8 CodeRabbit Follow-up
+
+- **Review remediation:** Hardened provider endpoint validation, finite HTTP timeouts, redirect scheme checks, independently owned credential-key wiping, gateway `/v1` normalization, model/max-token options, and full retry-context request envelopes.
+
 ## 2026-07-27 - Task 8: Cross-Platform Restricted Process Executor
 
 - **Task:** Task 8 implementation in worktree `F:\codes\ai4se-executor-feedback` on branch `codex/executor-feedback`.

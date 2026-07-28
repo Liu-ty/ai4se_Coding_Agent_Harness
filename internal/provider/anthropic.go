@@ -7,13 +7,20 @@ import (
 	"net/http"
 )
 
-type Anthropic struct{ *httpProvider }
+type Anthropic struct {
+	*httpProvider
+	options Options
+}
 
-func NewAnthropic(endpoint string, client *http.Client, credentials CredentialSource) *Anthropic {
-	return &Anthropic{newHTTPProvider(endpoint, client, credentials, "anthropic")}
+func NewAnthropic(endpoint string, client *http.Client, credentials CredentialSource, options Options) (*Anthropic, error) {
+	h, err := newHTTPProvider(endpoint, client, credentials, "anthropic")
+	if err != nil {
+		return nil, err
+	}
+	return &Anthropic{httpProvider: h, options: options}, nil
 }
 func (p *Anthropic) Decide(ctx context.Context, request Request) (Response, error) {
-	payload := map[string]any{"system": "Return one canonical JSON AgentDecision.", "messages": []map[string]string{{"role": "user", "content": request.Task}}}
+	payload := map[string]any{"model": p.options.Model, "max_tokens": p.options.MaxTokens, "system": "Return one canonical JSON AgentDecision.", "messages": []map[string]any{{"role": "user", "content": request}}}
 	b, _ := json.Marshal(payload)
 	data, err := p.post(ctx, "/v1/messages", bytes.NewReader(b), func(h http.Header, key []byte) {
 		h.Set("x-api-key", string(key))

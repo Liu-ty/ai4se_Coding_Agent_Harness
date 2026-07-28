@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const maxResponseBytes int64 = 1 << 20
+const defaultTimeout = 30 * time.Second
 
 var ErrAuthentication = errors.New("provider authentication failed")
 var ErrRateLimited = errors.New("provider rate limited")
@@ -26,29 +28,36 @@ type httpProvider struct {
 	kind        string
 }
 
-func newHTTPProvider(endpoint string, client *http.Client, credentials CredentialSource, kind string) *httpProvider {
-	u, _ := url.Parse(endpoint)
+func newHTTPProvider(endpoint string, client *http.Client, credentials CredentialSource, kind string) (*httpProvider, error) {
+	u, err := url.ParseRequestURI(endpoint)
+	if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return nil, ErrTransport
+	}
 	if client == nil {
 		client = http.DefaultClient
 	}
 	clone := *client
+	if clone.Timeout <= 0 {
+		clone.Timeout = defaultTimeout
+	}
 	origin := u.Host
 	clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if req.URL.Host != origin {
+		if req.URL.Host != origin || req.URL.Scheme != u.Scheme {
 			return http.ErrUseLastResponse
 		}
 		return nil
 	}
-	return &httpProvider{endpoint: u, client: &clone, credentials: credentials, kind: kind}
+	return &httpProvider{endpoint: u, client: &clone, credentials: credentials, kind: kind}, nil
 }
 func (p *httpProvider) post(ctx context.Context, path string, body io.Reader, headers func(http.Header, []byte)) ([]byte, error) {
 	if p.endpoint == nil || p.endpoint.Scheme == "" || p.endpoint.Host == "" {
 		return nil, ErrTransport
 	}
-	key, err := p.credentials.Get(ctx, p.kind, p.endpoint.Host)
+	sourceKey, err := p.credentials.Get(ctx, p.kind, p.endpoint.Host)
 	if err != nil {
 		return nil, ErrAuthentication
 	}
+	key := append([]byte(nil), sourceKey...)
 	defer func() {
 		for i := range key {
 			key[i] = 0
@@ -56,7 +65,9 @@ func (p *httpProvider) post(ctx context.Context, path string, body io.Reader, he
 	}()
 	u := *p.endpoint
 	basePath := strings.TrimRight(u.Path, "/")
-	if basePath != "" && strings.HasPrefix(path, basePath+"/") {
+	if strings.HasSuffix(basePath, "/v1") && strings.HasPrefix(path, "/v1/") {
+		u.Path = basePath + strings.TrimPrefix(path, "/v1")
+	} else if basePath != "" && strings.HasPrefix(path, basePath+"/") {
 		u.Path = path
 	} else {
 		u.Path = basePath + path

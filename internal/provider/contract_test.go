@@ -24,6 +24,9 @@ func (credentials) Get(context.Context, string, string) ([]byte, error) {
 func canonicalRequest() provider.Request {
 	return provider.Request{Task: "repair", AllowedActions: []string{"read_file"}}
 }
+
+var options = provider.Options{Model: "test-model", MaxTokens: 128}
+
 func canonicalDecision() string {
 	return `{"version":"1","action":{"kind":"read_file","args":{"path":"bug.go"}},"expected_outcome":"inspect"}`
 }
@@ -46,7 +49,11 @@ func TestOpenAIContractUsesCanonicalPathAndBearerAuthentication(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": canonicalDecision()}}}, "usage": map[string]int{"prompt_tokens": 3, "completion_tokens": 5}})
 	}))
 	defer srv.Close()
-	got, err := provider.NewOpenAI(srv.URL, srv.Client(), credentials{}).Decide(context.Background(), canonicalRequest())
+	p, err := provider.NewOpenAI(srv.URL, srv.Client(), credentials{}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Decide(context.Background(), canonicalRequest())
 	assertDecision(t, got, err)
 }
 
@@ -59,7 +66,11 @@ func TestOpenAIDoesNotDuplicateV1EndpointPrefix(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": canonicalDecision()}}}})
 	}))
 	defer srv.Close()
-	got, err := provider.NewOpenAI(srv.URL+"/v1", srv.Client(), credentials{}).Decide(context.Background(), canonicalRequest())
+	p, err := provider.NewOpenAI(srv.URL+"/v1", srv.Client(), credentials{}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Decide(context.Background(), canonicalRequest())
 	assertDecision(t, got, err)
 }
 
@@ -72,7 +83,11 @@ func TestAnthropicContractUsesCanonicalPathAndKeyHeaders(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"content": []any{map[string]any{"type": "text", "text": canonicalDecision()}}, "usage": map[string]int{"input_tokens": 3, "output_tokens": 5}})
 	}))
 	defer srv.Close()
-	got, err := provider.NewAnthropic(srv.URL, srv.Client(), credentials{}).Decide(context.Background(), canonicalRequest())
+	p, err := provider.NewAnthropic(srv.URL, srv.Client(), credentials{}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Decide(context.Background(), canonicalRequest())
 	assertDecision(t, got, err)
 }
 
@@ -81,7 +96,11 @@ func TestProviderErrorsDoNotLeakCredential(t *testing.T) {
 		http.Error(w, "server rejected "+canaryKey, http.StatusInternalServerError)
 	}))
 	defer srv.Close()
-	_, err := provider.NewOpenAI(srv.URL, srv.Client(), credentials{}).Decide(context.Background(), canonicalRequest())
+	p, err := provider.NewOpenAI(srv.URL, srv.Client(), credentials{}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.Decide(context.Background(), canonicalRequest())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -96,7 +115,11 @@ func TestProviderRejectsMalformedAndOversizedResponses(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(body))
 		}))
-		_, err := provider.NewOpenAI(srv.URL, srv.Client(), credentials{}).Decide(context.Background(), canonicalRequest())
+		p, err := provider.NewOpenAI(srv.URL, srv.Client(), credentials{}, options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = p.Decide(context.Background(), canonicalRequest())
 		srv.Close()
 		if !errors.Is(err, provider.ErrInvalidResponse) {
 			t.Fatalf("error=%v", err)

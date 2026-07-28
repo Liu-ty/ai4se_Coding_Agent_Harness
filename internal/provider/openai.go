@@ -7,13 +7,20 @@ import (
 	"net/http"
 )
 
-type OpenAI struct{ *httpProvider }
+type OpenAI struct {
+	*httpProvider
+	options Options
+}
 
-func NewOpenAI(endpoint string, client *http.Client, credentials CredentialSource) *OpenAI {
-	return &OpenAI{newHTTPProvider(endpoint, client, credentials, "openai")}
+func NewOpenAI(endpoint string, client *http.Client, credentials CredentialSource, options Options) (*OpenAI, error) {
+	h, err := newHTTPProvider(endpoint, client, credentials, "openai")
+	if err != nil {
+		return nil, err
+	}
+	return &OpenAI{httpProvider: h, options: options}, nil
 }
 func (p *OpenAI) Decide(ctx context.Context, request Request) (Response, error) {
-	payload := map[string]any{"messages": []map[string]string{{"role": "system", "content": "Return one canonical JSON AgentDecision."}, {"role": "user", "content": request.Task}}}
+	payload := map[string]any{"model": p.options.Model, "messages": []map[string]any{{"role": "system", "content": "Return one canonical JSON AgentDecision."}, {"role": "user", "content": request}}}
 	b, _ := json.Marshal(payload)
 	data, err := p.post(ctx, "/v1/chat/completions", bytes.NewReader(b), func(h http.Header, key []byte) { h.Set("Authorization", "Bearer "+string(key)) })
 	if err != nil {

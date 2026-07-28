@@ -14,6 +14,10 @@ type Request struct {
 	AllowedActions []string
 }
 type Usage struct{ InputTokens, OutputTokens int }
+type Options struct {
+	Model     string
+	MaxTokens int
+}
 type Response struct {
 	Decision domain.AgentDecision
 	Usage    Usage
