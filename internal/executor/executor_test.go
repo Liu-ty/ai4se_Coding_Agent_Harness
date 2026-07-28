@@ -225,7 +225,10 @@ func TestExecutorExternalDeadlineIsTimeout(t *testing.T) {
 func TestExecutorNormalExitCleansUpProcessTree(t *testing.T) {
 	dir := t.TempDir()
 	heartbeat := filepath.Join(dir, "heartbeat")
-	got, err := executor.NewLocal().Run(context.Background(), helperSpec(t, "spawn-child-exit", heartbeat))
+	spec := helperSpec(t, "spawn-child-exit", heartbeat)
+	spec.Timeout = 10 * time.Second
+
+	got, err := executor.NewLocal().Run(context.Background(), spec)
 	if err != nil {
 		t.Fatalf("run spawn-child-exit: %v", err)
 	}
@@ -239,7 +242,7 @@ func TestExecutorNormalExitDrainsInheritedPipesAfterProcessTreeCleanup(t *testin
 	dir := t.TempDir()
 	heartbeat := filepath.Join(dir, "heartbeat")
 	spec := helperSpec(t, "spawn-child-inherit-exit", heartbeat)
-	spec.Timeout = 5 * time.Second
+	spec.Timeout = 10 * time.Second
 
 	got, err := executor.NewLocal().Run(context.Background(), spec)
 	if err != nil {

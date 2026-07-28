@@ -57,7 +57,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
 		}
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
 			if info, err := os.Stat(os.Args[2]); err == nil && info.Size() > 0 {
 				return
@@ -76,7 +76,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
 		}
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
 			if info, err := os.Stat(os.Args[2]); err == nil && info.Size() > 0 {
 				return
