@@ -2,16 +2,24 @@ package executor
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/config"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 )
 
+var (
+	ErrUnsupportedPlatform = errors.New("unsupported executor platform: only Windows and Linux are supported")
+	ErrProcessCleanup      = errors.New("process cleanup failed")
+)
+
 const (
-	CodeExit       = "EXIT"
-	CodeStartError = "START_ERROR"
-	CodeTimeout    = "TIMEOUT"
-	CodeCancelled  = "CANCELLED"
+	CodeExit           = "EXIT"
+	CodeStartError     = "START_ERROR"
+	CodeExecutionError = "EXECUTION_ERROR"
+	CodeCleanupError   = "CLEANUP_ERROR"
+	CodeTimeout        = "TIMEOUT"
+	CodeCancelled      = "CANCELLED"
 )
 
 type Executor interface {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/config"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/executor"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/feedback"
 )
 
 func TestExecutorCapturesSeparateStreamsAndExitCode(t *testing.T) {
@@ -21,6 +22,31 @@ func TestExecutorCapturesSeparateStreamsAndExitCode(t *testing.T) {
 	}
 	if got.Stdout != "out\n" || got.Stderr != "err\n" || got.ExitCode == nil || *got.ExitCode != 7 {
 		t.Fatalf("observation = %#v", got)
+	}
+}
+
+func TestExecutorDrainsBothStreamsBeforeReturning(t *testing.T) {
+	spec := helperSpec(t, "stream-burst")
+	spec.MaxOutputBytes = 1024 * 1024
+	wantStdout := strings.Repeat("O", spec.MaxOutputBytes)
+	wantStderr := strings.Repeat("E", spec.MaxOutputBytes)
+
+	for attempt := 0; attempt < 20; attempt++ {
+		got, err := executor.NewLocal().Run(context.Background(), spec)
+		if err != nil {
+			t.Fatalf("attempt %d: run stream burst: %v", attempt, err)
+		}
+		if got.Stdout != wantStdout || got.Stderr != wantStderr || got.ExitCode == nil || *got.ExitCode != 7 {
+			t.Fatalf(
+				"attempt %d: stdout/stderr lengths = %d/%d, exit = %v; want %d/%d and 7",
+				attempt,
+				len(got.Stdout),
+				len(got.Stderr),
+				got.ExitCode,
+				len(wantStdout),
+				len(wantStderr),
+			)
+		}
 	}
 }
 
@@ -35,8 +61,43 @@ func TestExecutorBoundsStdoutAndStderrIndependently(t *testing.T) {
 	if len(got.Stdout) != spec.MaxOutputBytes || len(got.Stderr) != spec.MaxOutputBytes {
 		t.Fatalf("stdout/stderr lengths = %d/%d, want %d/%d", len(got.Stdout), len(got.Stderr), spec.MaxOutputBytes, spec.MaxOutputBytes)
 	}
+	if !got.OutputTruncated {
+		t.Fatalf("output truncation not marked: %#v", got)
+	}
+	structured := feedback.Pipeline{MaxEvidence: 100, MaxSummaryBytes: 100}.Process(feedback.Input{
+		StageID:     spec.ID,
+		Code:        got.Code,
+		Observation: got,
+	})
+	if !structured.OutputTruncated {
+		t.Fatalf("executor truncation not preserved by feedback pipeline: %#v", structured)
+	}
 	if !strings.HasPrefix(got.Stdout, "OOOO") || !strings.HasPrefix(got.Stderr, "EEEE") {
 		t.Fatalf("unexpected bounded streams: stdout=%q stderr=%q", got.Stdout, got.Stderr)
+	}
+}
+
+func TestExecutorMarksEitherTruncatedStream(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{name: "stdout", mode: "large-stdout"},
+		{name: "stderr", mode: "large-stderr"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := helperSpec(t, tt.mode)
+			spec.MaxOutputBytes = 12
+
+			got, err := executor.NewLocal().Run(context.Background(), spec)
+			if err != nil {
+				t.Fatalf("run %s: %v", tt.mode, err)
+			}
+			if !got.OutputTruncated {
+				t.Fatalf("%s truncation not marked: %#v", tt.name, got)
+			}
+		})
 	}
 }
 
@@ -60,14 +121,30 @@ func TestExecutorTimeoutCleansUpProcessTree(t *testing.T) {
 	dir := t.TempDir()
 	heartbeat := filepath.Join(dir, "heartbeat")
 	spec := helperSpec(t, "spawn-child", heartbeat)
-	spec.Timeout = 250 * time.Millisecond
 
-	got, err := executor.NewLocal().Run(context.Background(), spec)
-	if err != nil {
-		t.Fatalf("run spawn-child: %v", err)
-	}
-	if got.Code != executor.CodeTimeout {
-		t.Fatalf("code = %q, want %q; observation=%#v", got.Code, executor.CodeTimeout, got)
+	done := make(chan struct {
+		obsCode string
+		err     error
+	}, 1)
+	go func() {
+		got, err := executor.NewLocal().Run(context.Background(), spec)
+		done <- struct {
+			obsCode string
+			err     error
+		}{obsCode: got.Code, err: err}
+	}()
+
+	waitForHeartbeat(t, heartbeat)
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("run spawn-child: %v", got.err)
+		}
+		if got.obsCode != executor.CodeTimeout {
+			t.Fatalf("code = %q, want %q", got.obsCode, executor.CodeTimeout)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("executor did not return after timeout")
 	}
 	assertHeartbeatStopped(t, heartbeat)
 }
@@ -102,6 +179,70 @@ func TestExecutorContextCancellationCleansUpProcessTree(t *testing.T) {
 		}
 	case <-time.After(4 * time.Second):
 		t.Fatal("executor did not return after cancellation")
+	}
+	assertHeartbeatStopped(t, heartbeat)
+}
+
+func TestExecutorExternalDeadlineIsTimeout(t *testing.T) {
+	dir := t.TempDir()
+	heartbeat := filepath.Join(dir, "heartbeat")
+	spec := helperSpec(t, "spawn-child", heartbeat)
+	spec.Timeout = 0
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+
+	done := make(chan struct {
+		obsCode string
+		err     error
+	}, 1)
+	go func() {
+		got, err := executor.NewLocal().Run(ctx, spec)
+		done <- struct {
+			obsCode string
+			err     error
+		}{obsCode: got.Code, err: err}
+	}()
+
+	waitForHeartbeat(t, heartbeat)
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("run after external deadline: %v", result.err)
+		}
+		if result.obsCode != executor.CodeTimeout {
+			t.Fatalf("code = %q, want %q", result.obsCode, executor.CodeTimeout)
+		}
+	case <-time.After(7 * time.Second):
+		t.Fatal("executor did not return after external deadline")
+	}
+	assertHeartbeatStopped(t, heartbeat)
+}
+
+func TestExecutorNormalExitCleansUpProcessTree(t *testing.T) {
+	dir := t.TempDir()
+	heartbeat := filepath.Join(dir, "heartbeat")
+	got, err := executor.NewLocal().Run(context.Background(), helperSpec(t, "spawn-child-exit", heartbeat))
+	if err != nil {
+		t.Fatalf("run spawn-child-exit: %v", err)
+	}
+	if got.Code != executor.CodeExit || got.ExitCode == nil || *got.ExitCode != 0 {
+		t.Fatalf("observation = %#v, want successful exit", got)
+	}
+	assertHeartbeatStopped(t, heartbeat)
+}
+
+func TestExecutorNormalExitDrainsInheritedPipesAfterProcessTreeCleanup(t *testing.T) {
+	dir := t.TempDir()
+	heartbeat := filepath.Join(dir, "heartbeat")
+	spec := helperSpec(t, "spawn-child-inherit-exit", heartbeat)
+	spec.Timeout = 5 * time.Second
+
+	got, err := executor.NewLocal().Run(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("run spawn-child-inherit-exit: %v; observation=%#v", err, got)
+	}
+	if got.Code != executor.CodeExit || got.ExitCode == nil || *got.ExitCode != 0 {
+		t.Fatalf("observation = %#v, want successful exit", got)
 	}
 	assertHeartbeatStopped(t, heartbeat)
 }

@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Foundation PR #1 is merged at `6cad5d1`, and the `config-store-budget` PR #2 is merged into `main` at `712f257`. Tasks 1-4 are complete on `main`; Tasks 5-7 are complete on the pushed `policy-tools` PR #3 branch through CodeRabbit follow-up `ca12a83`.
+**Status:** Foundation PR #1 is merged at `6cad5d1`, `config-store-budget` PR #2 is merged at `712f257`, and `policy-tools` PR #3 is merged at `b4cab7c`. Executor-feedback PR #4 was merged at `085933e` before three review threads were resolved; Tasks 8-10 are complete through the remediation Draft PR #6 branch at `5ffc0d5`. Task 11 has not started.
+
+PR #4's early merge is retained as an auditable process deviation. Draft PR #6 repairs the three inherited review gaps, adds Windows/Linux runtime CI and unsupported-platform rejection gates, and incorporates the follow-up output-drain and checkout-credential review findings. Both push and pull-request CI runs passed on `5ffc0d5`; fresh independent specification and code-quality reviews returned Approved/Ready with no Critical or Important findings. CodeRabbit auto-resolved the checkout-credential thread, while its executor-drain thread remains unresolved because the incremental re-review was rate-limited; the thread's behavior is covered by deterministic RED/GREEN tests and the independent reviews, and no agent replied to or resolved it.
 
 **Goal:** Build a language-agnostic, validation-driven coding agent harness that applies governed patches, converts objective check failures into structured feedback, and stops only after complete required validation or an explicit terminal condition.
 
@@ -397,7 +399,7 @@ Before changing production code, add focused tests proving that omitted budget k
 
 ---
 
-### Task 3: Hash-Chained Memory and SQLite Event Store — implementation complete (`b7814ee`, review fixes `110cbf6`, `01891d0`); architecture remediation deferred
+### Task 3: Hash-Chained Memory and SQLite Event Store — complete (`b7814ee`, review fixes `110cbf6`, `01891d0`, architecture remediation `b391b92`)
 
 **Files:**
 - Create: `internal/domain/events.go`
@@ -776,7 +778,7 @@ git commit -m "feat: apply bounded atomic code patches"
 
 ---
 
-### Task 8: Cross-Platform Restricted Process Executor
+### Task 8: Cross-Platform Restricted Process Executor — complete (`9cba047`; remediation through `5ffc0d5`)
 
 **Files:**
 - Create: `internal/executor/executor.go`
@@ -792,7 +794,7 @@ git commit -m "feat: apply bounded atomic code patches"
 - Consumes: `config.CommandSpec`, context cancellation, sanitized environment.
 - Produces: `executor.Executor.Run(context.Context, config.CommandSpec) (domain.Observation, error)` with bounded separate stdout/stderr and process-tree cleanup.
 
-- [ ] **Step 1: Write failing exit, truncation, timeout, environment, and process-tree tests**
+- [x] **Step 1: Write failing exit, truncation, timeout, environment, and process-tree tests**
 
 ```go
 func TestExecutorCapturesSeparateStreams(t *testing.T) {
@@ -807,12 +809,12 @@ func TestExecutorDoesNotForwardSecretEnvironment(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red on the current platform**
+- [x] **Step 2: Run red on the current platform**
 
 Run: `go test ./internal/executor -v`  
 Expected: FAIL because executor is missing.
 
-- [ ] **Step 3: Implement bounded process execution**
+- [x] **Step 3: Implement bounded process execution**
 
 ```go
 type Executor interface { Run(context.Context, config.CommandSpec) (domain.Observation, error) }
@@ -822,11 +824,11 @@ type Mock struct { Results map[string][]domain.Observation; Calls []config.Comma
 
 Use `exec.CommandContext(spec.Executable, spec.Args...)`, set a canonical repository-relative working directory resolved earlier, retain an explicit safe environment set, remove names matching `KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL`, and cap stdout/stderr independently while continuing to drain pipes.
 
-- [ ] **Step 4: Implement OS process-tree controllers**
+- [x] **Step 4: Implement OS process-tree controllers**
 
 Linux build-tag file sets `SysProcAttr.Setpgid = true`; cancellation sends SIGTERM to `-pid`, waits 2 seconds, then SIGKILL. Windows build-tag file creates a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, assigns the child process, and closes the job on cancellation. Use `golang.org/x/sys/windows`; do not invoke `taskkill`, PowerShell, or `cmd`.
 
-- [ ] **Step 5: Run green on Windows and Linux CI-compatible tests and commit**
+- [x] **Step 5: Run green on Windows and Linux CI-compatible tests and commit**
 
 Run: `go test ./internal/executor -v`  
 Expected: PASS for streams, exit code, output limit, timeout, cancellation, secret environment, and child-process cleanup on the current OS.
@@ -838,7 +840,7 @@ git commit -m "feat: execute bounded checks across platforms"
 
 ---
 
-### Task 9: Ordered Validation Pipeline
+### Task 9: Ordered Validation Pipeline — complete (`805cd1b`; remediation through `5ffc0d5`)
 
 **Files:**
 - Create: `internal/validation/pipeline.go`
@@ -850,7 +852,7 @@ git commit -m "feat: execute bounded checks across platforms"
 - Consumes: resolved `[]config.CommandSpec` and `executor.Executor`.
 - Produces: `validation.Pipeline.RunStage`, `RunFrom`, and `RunAllRequired`, with stable stage results.
 
-- [ ] **Step 1: Write failing fail-fast and final-rerun tests**
+- [x] **Step 1: Write failing fail-fast and final-rerun tests**
 
 ```go
 func TestRunFromStopsAtFirstFailure(t *testing.T) {
@@ -875,12 +877,12 @@ func TestFinalValidationRerunsAllRequired(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/validation -v`  
 Expected: FAIL because validation package is missing.
 
-- [ ] **Step 3: Implement pipeline result types and ordered execution**
+- [x] **Step 3: Implement pipeline result types and ordered execution**
 
 ```go
 type StageResult struct { Stage config.CommandSpec; Observation domain.Observation; Passed bool }
@@ -893,7 +895,7 @@ func (p *Pipeline) RunAllRequired(context.Context) Result
 
 Pass means process started, did not time out/cancel, and exit code is zero. Optional-stage failure is recorded but does not prevent required stages from running; any required failure stops the current pass.
 
-- [ ] **Step 4: Run green and commit**
+- [x] **Step 4: Run green and commit**
 
 Run: `go test ./internal/validation -v`  
 Expected: PASS for ordered stages, first required failure, optional failure, context cancellation, missing exit, and complete final rerun.
@@ -905,7 +907,7 @@ git commit -m "feat: add staged validation pipeline"
 
 ---
 
-### Task 10: Deterministic Feedback Pipeline
+### Task 10: Deterministic Feedback Pipeline — complete (`8caa1f5`; remediation `2ee1114`, `d045e6e`)
 
 **Files:**
 - Create: `internal/feedback/normalize.go`
@@ -920,7 +922,7 @@ git commit -m "feat: add staged validation pipeline"
 - Consumes: action/tool/validation observations and configured classifier rules.
 - Produces: `feedback.Pipeline.Process(Input) domain.StructuredFeedback`, stable secret-safe fingerprints, and bounded evidence.
 
-- [ ] **Step 1: Write failing normalization, redaction, category, and fingerprint tests**
+- [x] **Step 1: Write failing normalization, redaction, category, and fingerprint tests**
 
 ```go
 func TestFingerprintIgnoresANSIPathsTimingAndAddresses(t *testing.T) {
@@ -935,12 +937,12 @@ func TestRedactorRemovesKnownAndPatternSecrets(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/feedback -v`  
 Expected: FAIL because feedback package is missing.
 
-- [ ] **Step 3: Implement pure pipeline stages**
+- [x] **Step 3: Implement pure pipeline stages**
 
 Classification priority is protocol → policy → patch → environment → configured validation regex → generic validation → progress. Strip ANSI; normalize slashes; replace line numbers, durations, hex addresses, UUIDs, and temporary roots before hashing. Redact exact runtime secrets before regex patterns. Preserve only the first and last bounded evidence groups and mark truncation.
 
@@ -950,11 +952,11 @@ type Pipeline struct { MaxEvidence int; MaxSummaryBytes int }
 func (p Pipeline) Process(Input) domain.StructuredFeedback
 ```
 
-- [ ] **Step 4: Add table tests for all required categories**
+- [x] **Step 4: Add table tests for all required categories**
 
 Cases must cover invalid JSON, unknown action, approval required, path denial, stale patch, missing executable, timeout, cancellation, test/compile/type/lint/build, generic exit, empty patch, regression, and output truncation.
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/feedback -v`  
 Expected: PASS with no canary secret in failure output (`go test` output included).

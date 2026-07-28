@@ -4,12 +4,6 @@ package executor
 
 import "os/exec"
 
-type processTree struct{}
-
-func prepareProcessTree(cmd *exec.Cmd) (*processTree, error) {
-	return &processTree{}, nil
+func prepareProcessTree(_ *exec.Cmd) (processTreeController, error) {
+	return nil, ErrUnsupportedPlatform
 }
-
-func (p *processTree) afterStart(cmd *exec.Cmd) error { return nil }
-func (p *processTree) terminate()                     {}
-func (p *processTree) close()                         {}

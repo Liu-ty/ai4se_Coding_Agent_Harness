@@ -2,6 +2,7 @@ package feedback
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 )
@@ -43,11 +44,20 @@ func summarize(category, text string, maxBytes int) (string, bool) {
 	if len(lines) > 0 {
 		summary = category + ": " + lines[0]
 	}
-	if len(summary) <= maxBytes {
-		return summary, false
-	}
 	if maxBytes <= 0 {
 		return "", true
 	}
-	return summary[:maxBytes], true
+	limit := len(summary)
+	if limit > maxBytes {
+		limit = maxBytes
+	}
+	prefix := summary[:limit]
+	for offset := 0; offset < len(prefix); {
+		r, size := utf8.DecodeRuneInString(prefix[offset:])
+		if r == utf8.RuneError && size == 1 {
+			return prefix[:offset], true
+		}
+		offset += size
+	}
+	return prefix, limit < len(summary)
 }

@@ -1,6 +1,8 @@
 package feedback_test
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/executor"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/feedback"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/validation"
 )
 
 func TestFingerprintIgnoresANSIPathsTimingAndAddresses(t *testing.T) {
@@ -59,6 +62,8 @@ func TestProcessClassifiesRequiredCategories(t *testing.T) {
 		{name: "path denial", in: input("policy", "REPOSITORY_ESCAPE", "", 0), want: "POLICY_DENIED"},
 		{name: "stale patch", in: input("patch", "STALE_PATCH", "", 0), want: "STALE_PATCH"},
 		{name: "missing executable", in: input("go-test", executor.CodeStartError, "executable file not found in PATH", 0), want: "MISSING_EXECUTABLE"},
+		{name: "execution failure", in: input("go-test", executor.CodeExecutionError, "wait for command failed", 0), want: "ENVIRONMENT_FAILURE"},
+		{name: "cleanup failure", in: input("go-test", executor.CodeCleanupError, "process cleanup failed", 0), want: "INCOMPLETE_PROCESS_CLEANUP"},
 		{name: "timeout", in: input("go-test", executor.CodeTimeout, "", 0), want: "TIMEOUT"},
 		{name: "cancellation", in: input("go-test", executor.CodeCancelled, "", 0), want: "CANCELLED"},
 		{name: "test failure", in: input("unit", executor.CodeExit, "--- FAIL: TestThing\nexpected true", 1), want: "TEST_FAILURE"},
@@ -111,6 +116,149 @@ func TestProcessBoundsEvidenceWithFirstAndLastLines(t *testing.T) {
 	}
 	if len(got.Summary) > 16 {
 		t.Fatalf("summary not bounded: %q", got.Summary)
+	}
+}
+
+func TestProcessPreservesExecutorOutputTruncation(t *testing.T) {
+	got := feedback.Pipeline{MaxEvidence: 100, MaxSummaryBytes: 100}.Process(feedback.Input{
+		StageID: "unit",
+		Code:    executor.CodeExit,
+		Observation: domain.Observation{
+			Code:            executor.CodeExit,
+			ExitCode:        intp(1),
+			Stdout:          "short output",
+			OutputTruncated: true,
+		},
+	})
+	if !got.OutputTruncated {
+		t.Fatalf("executor truncation not preserved: %#v", got)
+	}
+}
+
+func TestProcessSurfacesInvalidClassifierRule(t *testing.T) {
+	got := feedback.Pipeline{}.Process(feedback.Input{
+		StageID: "custom",
+		Code:    executor.CodeExit,
+		Observation: domain.Observation{
+			Code:     executor.CodeExit,
+			ExitCode: intp(1),
+			Stdout:   "ordinary validation failure",
+		},
+		Rules: []config.ClassifierRule{
+			{Category: "BROKEN", Pattern: "["},
+			{Category: "CUSTOM_FAILURE", Pattern: "ordinary"},
+		},
+	})
+	if got.Category != "CUSTOM_FAILURE" {
+		t.Fatalf("category = %q, want CUSTOM_FAILURE", got.Category)
+	}
+	var found bool
+	for _, evidence := range got.Evidence {
+		if evidence.Source == "classifier" && evidence.Message == "invalid classifier rule at index 0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("invalid classifier diagnostic not surfaced: %#v", got.Evidence)
+	}
+}
+
+func TestProcessDoesNotExposeInvalidClassifierPattern(t *testing.T) {
+	const canary = "CANARY_CLASSIFIER_SECRET_DO_NOT_LOG"
+	got := feedback.Pipeline{}.Process(feedback.Input{
+		StageID: "custom",
+		Code:    executor.CodeExit,
+		Observation: domain.Observation{
+			Code:     executor.CodeExit,
+			ExitCode: intp(1),
+			Stdout:   "ordinary validation failure",
+		},
+		Rules: []config.ClassifierRule{
+			{Category: "BROKEN", Pattern: "(?P<" + canary},
+		},
+	})
+	for _, evidence := range got.Evidence {
+		if strings.Contains(evidence.Message, canary) {
+			t.Fatalf("classifier pattern leaked in evidence: %#v", got.Evidence)
+		}
+	}
+}
+
+func TestExecutionDiagnosticSurvivesValidationAndFeedback(t *testing.T) {
+	const secret = "wait-canary\"\\\n<>&"
+	data, err := json.Marshal(struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}{
+		Code:    executor.CodeExecutionError,
+		Message: "wait for command: device failure " + secret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs := domain.Observation{
+		Code: executor.CodeExecutionError,
+		Data: data,
+	}
+	ex := &executor.Mock{Results: map[string][]domain.Observation{"unit": {obs}}}
+	stage := config.CommandSpec{ID: "unit", Required: true}
+
+	stageResult := validation.New([]config.CommandSpec{stage}, ex).RunStage(context.Background(), 0)
+	got := feedback.Pipeline{}.Process(feedback.Input{
+		StageID:     stage.ID,
+		Observation: stageResult.Observation,
+		Secrets:     []string{secret},
+	})
+
+	if stageResult.Passed {
+		t.Fatal("execution error unexpectedly passed validation")
+	}
+	if got.Category != "ENVIRONMENT_FAILURE" {
+		t.Fatalf("category = %q, want ENVIRONMENT_FAILURE", got.Category)
+	}
+	combined := got.Summary
+	for _, evidence := range got.Evidence {
+		combined += "\n" + evidence.Message
+	}
+	const escapedSecret = `wait-canary\"\\\n\u003c\u003e\u0026`
+	if !strings.Contains(combined, "device failure") ||
+		strings.Contains(combined, secret) ||
+		strings.Contains(combined, escapedSecret) {
+		t.Fatalf("diagnostic was lost or leaked: %#v", got)
+	}
+}
+
+func TestCleanupFailureIsTerminal(t *testing.T) {
+	got := feedback.Pipeline{}.Process(input(
+		"unit",
+		executor.CodeCleanupError,
+		"process cleanup failed",
+		0,
+	))
+	if got.Category != "INCOMPLETE_PROCESS_CLEANUP" || got.Retryable {
+		t.Fatalf("feedback = %#v, want terminal cleanup failure", got)
+	}
+}
+
+func TestProcessBoundsClassifierDiagnosticsWithEvidence(t *testing.T) {
+	got := feedback.Pipeline{MaxEvidence: 2, MaxSummaryBytes: 100}.Process(feedback.Input{
+		StageID: "custom",
+		Code:    executor.CodeExit,
+		Observation: domain.Observation{
+			Code:     executor.CodeExit,
+			ExitCode: intp(1),
+			Stdout:   "ordinary validation failure",
+		},
+		Rules: []config.ClassifierRule{
+			{Category: "BROKEN_ONE", Pattern: "["},
+			{Category: "BROKEN_TWO", Pattern: "("},
+		},
+	})
+	if len(got.Evidence) != 2 {
+		t.Fatalf("evidence count = %d, want 2: %#v", len(got.Evidence), got.Evidence)
+	}
+	if !got.OutputTruncated {
+		t.Fatalf("bounded classifier diagnostics not marked truncated: %#v", got)
 	}
 }
 
