@@ -1,6 +1,7 @@
 package provider_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,14 @@ type credentials struct{}
 
 func (credentials) Get(context.Context, string, string) ([]byte, error) {
 	return []byte(canaryKey), nil
+}
+
+type ownedCredentials struct {
+	key []byte
+}
+
+func (c *ownedCredentials) Get(context.Context, string, string) ([]byte, error) {
+	return c.key, nil
 }
 
 func canonicalRequest() provider.Request {
@@ -106,6 +115,24 @@ func TestProviderErrorsDoNotLeakCredential(t *testing.T) {
 	}
 	if contains := stringify(err); contains != "" {
 		t.Fatalf("error leaked credential: %q", contains)
+	}
+}
+
+func TestProviderClearsOwnedCredentialSourceBuffer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": canonicalDecision()}}}})
+	}))
+	defer srv.Close()
+	source := &ownedCredentials{key: []byte(canaryKey)}
+	p, err := provider.NewOpenAI(srv.URL, srv.Client(), source, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Decide(context.Background(), canonicalRequest())
+	assertDecision(t, got, err)
+	if !bytes.Equal(source.key, make([]byte, len(source.key))) {
+		t.Fatal("provider retained credential source bytes after request construction")
 	}
 }
 

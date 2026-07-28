@@ -19,6 +19,8 @@ var ErrInvalidResponse = errors.New("provider invalid response")
 var ErrTransport = errors.New("provider transport failed")
 
 type CredentialSource interface {
+	// Get returns an independently owned buffer that the provider clears after
+	// copying it into request-scoped memory.
 	Get(context.Context, string, string) ([]byte, error)
 }
 type httpProvider struct {
@@ -58,6 +60,9 @@ func (p *httpProvider) post(ctx context.Context, path string, body io.Reader, he
 		return nil, ErrAuthentication
 	}
 	key := append([]byte(nil), sourceKey...)
+	for i := range sourceKey {
+		sourceKey[i] = 0
+	}
 	defer func() {
 		for i := range key {
 			key[i] = 0

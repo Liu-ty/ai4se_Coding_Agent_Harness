@@ -1101,7 +1101,7 @@ git commit -m "feat: connect OpenAI-compatible and Anthropic providers"
 
 ---
 
-### Task 13: OS Keyring and Encrypted Vault Credentials
+### Task 13: OS Keyring and Encrypted Vault Credentials — complete (this commit)
 
 **Files:**
 - Create: `internal/credentials/store.go`
@@ -1116,7 +1116,7 @@ git commit -m "feat: connect OpenAI-compatible and Anthropic providers"
 - Consumes: provider ID, normalized endpoint host, hidden key bytes, optional master-password callback.
 - Produces: `credentials.Store`, `credentials.Service.Add/Status/Update/Clear/Get`, keyring-first selection, and Argon2id/XChaCha20-Poly1305 fallback.
 
-- [ ] **Step 1: Write failing vault and status tests with canary secrets**
+- [x] **Step 1: Write failing vault and status tests with canary secrets**
 
 ```go
 func TestVaultRoundTripAndWrongPassword(t *testing.T) {
@@ -1139,12 +1139,12 @@ func TestStatusNeverContainsSecret(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/credentials -v`  
 Expected: FAIL because credential package is missing.
 
-- [ ] **Step 3: Implement store and service contracts**
+- [x] **Step 3: Implement store and service contracts**
 
 ```go
 type Ref struct { Provider, Host string }
@@ -1162,16 +1162,16 @@ type Service struct { primary Store; fallback Store }
 
 Use `github.com/zalando/go-keyring` for the primary adapter. Treat Secret Service unavailable/locked errors as fallback-eligible, not invalid-key errors. Provider and host form the keyring account identity.
 
-- [ ] **Step 4: Implement the exact vault format**
+- [x] **Step 4: Implement the exact vault format**
 
 Binary format: magic `A4SEVLT1`, version byte, 16-byte random salt, Argon2id parameters, 24-byte XChaCha nonce, ciphertext. Use Argon2id with time=3, memory=64 MiB, threads=2, key length=32; use XChaCha20-Poly1305 and authenticate provider/host as associated data. Write through an owner-only temporary file and atomic rename. Reject unsupported versions and parameter values above safe limits before allocating memory.
 
-- [ ] **Step 5: Test add/update/clear, endpoint binding, backend fallback, file permissions, and redaction**
+- [x] **Step 5: Test add/update/clear, endpoint binding, backend fallback, file permissions, and redaction**
 
 Run: `go test ./internal/credentials -v`  
 Expected: PASS; the literal `canary-key` must not appear in JSON, errors, logs, or vault bytes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add internal/credentials AGENT_LOG.md go.mod go.sum
