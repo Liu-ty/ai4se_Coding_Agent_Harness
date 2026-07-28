@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 )
 
@@ -19,4 +20,8 @@ type Response struct {
 }
 type Provider interface {
 	Decide(context.Context, Request) (Response, error)
+}
+
+func validDecision(d domain.AgentDecision) bool {
+	return d.Version == "1" && d.Action.Kind != "" && json.Valid(d.Action.Args)
 }

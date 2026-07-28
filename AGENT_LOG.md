@@ -376,6 +376,13 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Security and scope:** Approval recovery keeps pending actions in the loop process only and reuses the existing exact digest / one-use approval boundary. It adds no credential persistence, API, UI, application service, raw-shell executor, or third-party agent loop.
 - **Green evidence:** `go test ./internal/agent -v` passed conditional patch change, protocol exhaustion, approval one-use, final regression, cancellation, and no-progress coverage before task-level full verification.
 
+## 2026-07-28 - Task 12: OpenAI-Compatible and Anthropic Provider Adapters
+
+- **Task:** Task 12 implementation only.
+- **Red evidence:** Local HTTP contract tests initially failed because `NewOpenAI` and `NewAnthropic` did not exist.
+- **Implementation:** Added injected-client OpenAI-compatible and Anthropic Messages adapters over the Task 11 provider port. Requests use endpoint-bound credential lookup, the required vendor authentication headers, JSON-only responses, a 1 MiB response cap, bounded normalized errors, and cross-host redirect rejection. Credential byte slices are cleared after request construction and error values never contain request bodies or headers.
+- **Green evidence:** `go test ./internal/provider -v` passed OpenAI/Anthropic endpoint and header contracts, malformed/oversized response rejection, and the credential non-leak regression; `go test ./... -count=1` passed before task-level review.
+
 ## 2026-07-27 - Task 8: Cross-Platform Restricted Process Executor
 
 - **Task:** Task 8 implementation in worktree `F:\codes\ai4se-executor-feedback` on branch `codex/executor-feedback`.
