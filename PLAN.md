@@ -968,7 +968,7 @@ git commit -m "feat: classify and compress validation feedback"
 
 ---
 
-### Task 11: Provider-Neutral Agent Loop and Conditional Mock E2E
+### Task 11: Provider-Neutral Agent Loop and Conditional Mock E2E — complete (`d45e9cd`, follow-up `6fb7536`)
 
 **Files:**
 - Create: `internal/provider/provider.go`
@@ -984,7 +984,7 @@ git commit -m "feat: classify and compress validation feedback"
 - Consumes: store, provider, registry, policy, approvals, validation, feedback, budget, and context assembler.
 - Produces: `provider.Provider.Decide`, `agent.Loop.Run`, `agent.Loop.ResumeApproval`, and the deterministic two-patch mechanism test.
 
-- [ ] **Step 1: Write the failing end-to-end loop test**
+- [x] **Step 1: Write the failing end-to-end loop test**
 
 ```go
 func TestLoopUsesFailureToChangeNextPatch(t *testing.T) {
@@ -999,12 +999,12 @@ func TestLoopUsesFailureToChangeNextPatch(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/agent -run TestLoopUsesFailure -v`  
 Expected: FAIL because provider and loop packages are missing.
 
-- [ ] **Step 3: Define provider request/response and conditional mock**
+- [x] **Step 3: Define provider request/response and conditional mock**
 
 ```go
 type Request struct { Task string; Context []ContextItem; LastFeedback *domain.StructuredFeedback; AllowedActions []string }
@@ -1017,17 +1017,17 @@ type MockCall struct { Request Request; Returned Response }
 
 The mock returns a raw-shell action when no feedback exists; on `POLICY_DENIED` it returns an intentionally incomplete patch; only when `Request.LastFeedback.Category == "TEST_FAILURE"` and evidence names the expected failure does it return the corrected patch, followed by `finish` after passing validation. `Mock.Calls() []MockCall` records both request and response. This makes behavior conditional, not a pre-scripted sequence.
 
-- [ ] **Step 4: Implement one-action loop orchestration**
+- [x] **Step 4: Implement one-action loop orchestration**
 
 For repair runs: preflight state already exists → baseline failure → decide → parse/record → policy → approval/execute → observation → feedback → automatic current-stage validation after mutation → budget/progress → decide; `finish` invokes full validation. Review profile skips baseline/checks, executes reads/searches only, records a denied patch as proposal artifact, and ends `REVIEW_COMPLETE`.
 
 Persist a typed event at every boundary. Never trust `finish` to set success directly. Use the transition table for every state change.
 
-- [ ] **Step 5: Add protocol-repair, approval, no-progress, cancellation, and final-regression tests**
+- [x] **Step 5: Add protocol-repair, approval, no-progress, cancellation, and final-regression tests**
 
 Each test uses mocks and asserts exact terminal state plus event order. The protocol test returns invalid JSON twice and then asserts `PROTOCOL_EXHAUSTED`; the final-regression test passes the active stage but fails the full pipeline and returns to deciding.
 
-- [ ] **Step 6: Run green and commit**
+- [x] **Step 6: Run green and commit**
 
 Run: `go test ./internal/agent -v`  
 Expected: PASS; no network and no real LLM.
@@ -1039,7 +1039,7 @@ git commit -m "feat: close the mock-driven repair loop"
 
 ---
 
-### Task 12: OpenAI-Compatible and Anthropic Provider Adapters
+### Task 12: OpenAI-Compatible and Anthropic Provider Adapters — complete (`ff151af`, follow-ups `6fb7536`, `410b556`, `b6353f3`)
 
 **Files:**
 - Create: `internal/provider/httpclient.go`
@@ -1054,7 +1054,7 @@ git commit -m "feat: close the mock-driven repair loop"
 - Consumes: `provider.Request`, endpoint-bound credential supplier, `http.Client`.
 - Produces: both adapters satisfying `provider.Provider`; errors normalize to auth, rate-limit, invalid-response, timeout, and transport codes.
 
-- [ ] **Step 1: Write local HTTP contract tests before adapters**
+- [x] **Step 1: Write local HTTP contract tests before adapters**
 
 ```go
 func providerContract(t *testing.T, build func(url string, client *http.Client) provider.Provider, handler http.Handler) {
@@ -1068,12 +1068,12 @@ func providerContract(t *testing.T, build func(url string, client *http.Client) 
 
 Add provider-specific handlers that assert OpenAI-compatible `/v1/chat/completions` bearer auth and Anthropic `/v1/messages` `x-api-key` plus version header. Return canonical decision JSON as model text.
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/provider -run 'OpenAI|Anthropic|Contract' -v`  
 Expected: FAIL because adapters are missing.
 
-- [ ] **Step 3: Implement shared safe HTTP behavior**
+- [x] **Step 3: Implement shared safe HTTP behavior**
 
 Use injected `http.Client`, context deadlines, a 1 MiB response limit, no automatic cross-host redirect with Authorization, normalized endpoint host, JSON content type validation, and bounded error bodies. Credential supplier signature:
 
@@ -1083,11 +1083,11 @@ type CredentialSource interface { Get(context.Context, string, string) ([]byte, 
 
 Zero the returned byte slice after constructing the request. Never include headers or request bodies in returned errors.
 
-- [ ] **Step 4: Implement both request/response mappings**
+- [x] **Step 4: Implement both request/response mappings**
 
 OpenAI-compatible sends a system message containing the canonical JSON schema and user/context messages; Anthropic sends the same protocol through top-level system plus messages. Parse only textual JSON into `domain.AgentDecision`, validate protocol version and exactly one action, and return usage fields.
 
-- [ ] **Step 5: Test error normalization and commit**
+- [x] **Step 5: Test error normalization and commit**
 
 Tests: 401, 429 with retry metadata, 500 bounded body, timeout, redirect-to-other-host, malformed JSON, missing content, oversized response, and key never present in error output.
 
@@ -1101,7 +1101,7 @@ git commit -m "feat: connect OpenAI-compatible and Anthropic providers"
 
 ---
 
-### Task 13: OS Keyring and Encrypted Vault Credentials
+### Task 13: OS Keyring and Encrypted Vault Credentials — complete (this commit)
 
 **Files:**
 - Create: `internal/credentials/store.go`
@@ -1116,7 +1116,7 @@ git commit -m "feat: connect OpenAI-compatible and Anthropic providers"
 - Consumes: provider ID, normalized endpoint host, hidden key bytes, optional master-password callback.
 - Produces: `credentials.Store`, `credentials.Service.Add/Status/Update/Clear/Get`, keyring-first selection, and Argon2id/XChaCha20-Poly1305 fallback.
 
-- [ ] **Step 1: Write failing vault and status tests with canary secrets**
+- [x] **Step 1: Write failing vault and status tests with canary secrets**
 
 ```go
 func TestVaultRoundTripAndWrongPassword(t *testing.T) {
@@ -1139,12 +1139,12 @@ func TestStatusNeverContainsSecret(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/credentials -v`  
 Expected: FAIL because credential package is missing.
 
-- [ ] **Step 3: Implement store and service contracts**
+- [x] **Step 3: Implement store and service contracts**
 
 ```go
 type Ref struct { Provider, Host string }
@@ -1162,16 +1162,16 @@ type Service struct { primary Store; fallback Store }
 
 Use `github.com/zalando/go-keyring` for the primary adapter. Treat Secret Service unavailable/locked errors as fallback-eligible, not invalid-key errors. Provider and host form the keyring account identity.
 
-- [ ] **Step 4: Implement the exact vault format**
+- [x] **Step 4: Implement the exact vault format**
 
 Binary format: magic `A4SEVLT1`, version byte, 16-byte random salt, Argon2id parameters, 24-byte XChaCha nonce, ciphertext. Use Argon2id with time=3, memory=64 MiB, threads=2, key length=32; use XChaCha20-Poly1305 and authenticate provider/host as associated data. Write through an owner-only temporary file and atomic rename. Reject unsupported versions and parameter values above safe limits before allocating memory.
 
-- [ ] **Step 5: Test add/update/clear, endpoint binding, backend fallback, file permissions, and redaction**
+- [x] **Step 5: Test add/update/clear, endpoint binding, backend fallback, file permissions, and redaction**
 
 Run: `go test ./internal/credentials -v`  
 Expected: PASS; the literal `canary-key` must not appear in JSON, errors, logs, or vault bytes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add internal/credentials AGENT_LOG.md go.mod go.sum
@@ -1180,7 +1180,11 @@ git commit -m "feat: store provider credentials securely"
 
 ---
 
-### Task 14: Application Service, Preflight, and Repository Locking
+### Task 14: Application Service, Preflight, and Repository Locking — complete (this commit)
+
+**Final review remediation:** Credentials may be sent only to HTTPS endpoints or literal loopback-IP HTTP endpoints; non-default endpoint hosts/ports require explicit confirmation. Repository ownership uses a durable, owner-matched cross-process lease and startup recovery releases only the matching abandoned lease. Agent approval digests include captured baseline commit/diff values, and resumed validation failures return structured feedback to re-decision.
+
+**PR #9 remediation:** Vault rolls back a secret when its keyring status marker cannot be written, closes reads explicitly, and syncs the parent directory before reporting a committed post-replacement permission failure; native Windows tests verify a protected, non-inherited DACL. Nonterminal approval errors revoke their one-use grant, lease release is serialized through read/verify/remove cleanup, and empty local-loop checks return failed validation instead of panicking. CI verifies the canonical checkout root.
 
 **Files:**
 - Create: `internal/app/service.go`
@@ -1188,13 +1192,19 @@ git commit -m "feat: store provider credentials securely"
 - Create: `internal/app/repolock.go`
 - Create: `internal/app/composition_local.go`
 - Test: `internal/app/service_test.go`
+- Modify: `internal/agent/loop.go`
+- Modify: `internal/domain/state.go`
+- Modify: `internal/feedback/classify.go`
+- Modify: `internal/store/`
+- Modify: `internal/storeport/`
+- Modify: `PLAN.md`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**
 - Consumes: config loader, store, loop factory, credentials, Git/workspace, clock.
 - Produces: `app.Service.Preflight/CreateRun/GetRun/ListRuns/CancelRun/Approve/Reject`, `PreflightReport`, and one-active-run-per-repository locking.
 
-- [ ] **Step 1: Write failing preflight and concurrency tests**
+- [x] **Step 1: Write failing preflight and concurrency tests**
 
 ```go
 func TestWorkspaceAutoRejectsDirtyRepository(t *testing.T) {
@@ -1209,21 +1219,21 @@ func TestOnlyOneActiveRunPerCanonicalRepository(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/app -v`  
 Expected: FAIL because app package is missing.
 
-- [ ] **Step 3: Implement preflight with distinct findings**
+- [x] **Step 3: Implement preflight with distinct findings**
 
 Check canonical Git root, Git executable, baseline commit/diff, config, platform stage resolution, executable lookup, key status, profile, dirty-worktree rule, and data-directory writability. Return ordered `Finding{Code, Severity, Message}` values; never include a secret or raw Authorization value.
 
-- [ ] **Step 4: Implement use cases and canonical repository locks**
+- [x] **Step 4: Implement use cases and canonical repository locks**
 
 ```go
 type CreateRunRequest struct { RepoRoot, Task, Provider, Model, Endpoint string; Profile domain.PermissionProfile; ConfigPath string }
 type PreflightReport struct { OK bool; Findings []Finding; BaselineCommit, BaselineDiffHash string }
-type LoopController interface { Start(context.Context, domain.Run) error; Approve(context.Context, domain.RunID, string) error; Reject(context.Context, domain.RunID, string, bool) error; Cancel(context.Context, domain.RunID) error }
+type LoopController interface { Start(context.Context, RunSetup) error; Approve(context.Context, domain.RunID, string) error; Reject(context.Context, domain.RunID, string, bool) error; Cancel(context.Context, domain.RunID) error }
 type Service struct { store storeport.Store; locks *RepoLocks; loops LoopController; creds *credentials.Service }
 func (s *Service) Preflight(context.Context, CreateRunRequest) PreflightReport
 func (s *Service) CreateRun(context.Context, CreateRunRequest) (domain.Run, error)
@@ -1234,13 +1244,13 @@ func (s *Service) CancelRun(context.Context, domain.RunID) error
 
 Release repository locks on every terminal state and on startup recovery of abandoned local runs. Never reset/clean/revert the repository.
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/app -v`  
 Expected: PASS for clean/dirty profiles, missing Git/check/key, endpoint mismatch, same path via symlink, concurrent create, cancel, approve/reject, and lock release.
 
 ```powershell
-git add internal/app AGENT_LOG.md
+git add internal/app internal/agent internal/domain internal/feedback internal/store internal/storeport PLAN.md AGENT_LOG.md
 git commit -m "feat: orchestrate safe local harness runs"
 ```
 

@@ -118,6 +118,54 @@ func (s *SQLiteStore) CreateRun(ctx context.Context, run domain.Run) error {
 	return nil
 }
 
+func (s *SQLiteStore) CreateRunWithEvent(
+	ctx context.Context,
+	run domain.Run,
+	eventType string,
+	payload json.RawMessage,
+) (event domain.RunEvent, err error) {
+	if err := validateEvent(run.ID, eventType); err != nil {
+		return domain.RunEvent{}, err
+	}
+	if err := checkContext(ctx); err != nil {
+		return domain.RunEvent{}, err
+	}
+	run = normalizeRun(run)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO runs (id, state, profile, task, repo_root, current_stage, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO NOTHING`,
+		run.ID, run.State, run.Profile, run.Task, run.RepoRoot, run.CurrentStage,
+		storeTime(run.CreatedAt), storeTime(run.UpdatedAt))
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	if changed == 0 {
+		return domain.RunEvent{}, storeport.ErrRunAlreadyExists
+	}
+	event, err = appendEventTx(ctx, tx, s.clock, run.ID, eventType, payload)
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return domain.RunEvent{}, err
+	}
+	return event, nil
+}
+
 func (s *SQLiteStore) UpdateRun(ctx context.Context, run domain.Run, eventType string, payload json.RawMessage) (event domain.RunEvent, err error) {
 	if err := validateEvent(run.ID, eventType); err != nil {
 		return domain.RunEvent{}, err
@@ -148,6 +196,61 @@ func (s *SQLiteStore) UpdateRun(ctx context.Context, run domain.Run, eventType s
 	}
 	if changed == 0 {
 		return domain.RunEvent{}, storeport.ErrRunNotFound
+	}
+	event, err = appendEventTx(ctx, tx, s.clock, run.ID, eventType, payload)
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return domain.RunEvent{}, err
+	}
+	return event, nil
+}
+
+func (s *SQLiteStore) UpdateRunIfState(
+	ctx context.Context,
+	run domain.Run,
+	expected domain.RunState,
+	eventType string,
+	payload json.RawMessage,
+) (event domain.RunEvent, err error) {
+	if err := validateEvent(run.ID, eventType); err != nil {
+		return domain.RunEvent{}, err
+	}
+	if err := checkContext(ctx); err != nil {
+		return domain.RunEvent{}, err
+	}
+	run = normalizeRun(run)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE runs SET state = ?, profile = ?, task = ?, repo_root = ?, current_stage = ?, created_at = ?, updated_at = ?
+		WHERE id = ? AND state = ?`,
+		run.State, run.Profile, run.Task, run.RepoRoot, run.CurrentStage,
+		storeTime(run.CreatedAt), storeTime(run.UpdatedAt), run.ID, expected)
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	if changed == 0 {
+		exists, existsErr := runExistsTx(ctx, tx, run.ID)
+		if existsErr != nil {
+			return domain.RunEvent{}, existsErr
+		}
+		if !exists {
+			return domain.RunEvent{}, storeport.ErrRunNotFound
+		}
+		return domain.RunEvent{}, storeport.ErrRunStateChanged
 	}
 	event, err = appendEventTx(ctx, tx, s.clock, run.ID, eventType, payload)
 	if err != nil {
@@ -214,6 +317,38 @@ func (s *SQLiteStore) GetRun(ctx context.Context, runID domain.RunID) (domain.Ru
 	run.CreatedAt = loadTime(createdAt)
 	run.UpdatedAt = loadTime(updatedAt)
 	return run, nil
+}
+
+func (s *SQLiteStore) ListRuns(ctx context.Context) (runs []domain.Run, err error) {
+	if err := checkContext(ctx); err != nil {
+		return nil, err
+	}
+	runs = make([]domain.Run, 0)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, state, profile, task, repo_root, current_stage, created_at, updated_at
+		FROM runs ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	for rows.Next() {
+		var run domain.Run
+		var createdAt, updatedAt int64
+		if err := rows.Scan(&run.ID, &run.State, &run.Profile, &run.Task, &run.RepoRoot, &run.CurrentStage, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		run.CreatedAt = loadTime(createdAt)
+		run.UpdatedAt = loadTime(updatedAt)
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return runs, nil
 }
 
 func storeTime(value time.Time) int64 {

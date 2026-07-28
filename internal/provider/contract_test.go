@@ -1,6 +1,7 @@
 package provider_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,11 +22,19 @@ func (credentials) Get(context.Context, string, string) ([]byte, error) {
 	return []byte(canaryKey), nil
 }
 
+type ownedCredentials struct {
+	key []byte
+}
+
+func (c *ownedCredentials) Get(context.Context, string, string) ([]byte, error) {
+	return c.key, nil
+}
+
 func canonicalRequest() provider.Request {
 	return provider.Request{Task: "repair", AllowedActions: []string{"read_file"}}
 }
 
-var options = provider.Options{Model: "test-model", MaxTokens: 128}
+var options = provider.Options{Model: "test-model", MaxTokens: 128, ConfirmCustomEndpoint: true}
 
 func canonicalDecision() string {
 	return `{"version":"1","action":{"kind":"read_file","args":{"path":"bug.go"}},"expected_outcome":"inspect"}`
@@ -109,6 +118,24 @@ func TestProviderErrorsDoNotLeakCredential(t *testing.T) {
 	}
 }
 
+func TestProviderClearsOwnedCredentialSourceBuffer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": canonicalDecision()}}}})
+	}))
+	defer srv.Close()
+	source := &ownedCredentials{key: []byte(canaryKey)}
+	p, err := provider.NewOpenAI(srv.URL, srv.Client(), source, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Decide(context.Background(), canonicalRequest())
+	assertDecision(t, got, err)
+	if !bytes.Equal(source.key, make([]byte, len(source.key))) {
+		t.Fatal("provider retained credential source bytes after request construction")
+	}
+}
+
 func TestProviderRejectsMalformedAndOversizedResponses(t *testing.T) {
 	for _, body := range []string{"not-json", strings.Repeat("x", 1<<20+1)} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -124,6 +151,34 @@ func TestProviderRejectsMalformedAndOversizedResponses(t *testing.T) {
 		if !errors.Is(err, provider.ErrInvalidResponse) {
 			t.Fatalf("error=%v", err)
 		}
+	}
+}
+
+func TestProviderOnlySendsStoredCredentialsToHTTPSOrLiteralLoopbackHTTP(t *testing.T) {
+	if _, err := provider.NewOpenAI("http://gateway.example.test", nil, credentials{}, options); !errors.Is(err, provider.ErrTransport) {
+		t.Fatalf("public HTTP endpoint error = %v, want ErrTransport", err)
+	}
+	if _, err := provider.NewOpenAI("http://127.0.0.1:8080", nil, credentials{}, provider.Options{
+		Model: "test-model", ConfirmCustomEndpoint: true,
+	}); err != nil {
+		t.Fatalf("literal loopback HTTP endpoint error = %v", err)
+	}
+	if _, err := provider.NewOpenAI("https://api.openai.com?api_key=url-secret", nil, credentials{}, options); !errors.Is(err, provider.ErrTransport) {
+		t.Fatalf("query-bearing endpoint error = %v, want ErrTransport", err)
+	}
+}
+
+func TestProviderRequiresExplicitConfirmationForCustomEndpoint(t *testing.T) {
+	if _, err := provider.NewOpenAI("https://gateway.example.test", nil, credentials{}, provider.Options{Model: "test-model"}); !errors.Is(err, provider.ErrTransport) {
+		t.Fatalf("unconfirmed custom endpoint error = %v, want ErrTransport", err)
+	}
+	if _, err := provider.NewOpenAI("https://gateway.example.test", nil, credentials{}, provider.Options{
+		Model: "test-model", ConfirmCustomEndpoint: true,
+	}); err != nil {
+		t.Fatalf("confirmed custom endpoint error = %v", err)
+	}
+	if _, err := provider.NewOpenAI("https://api.openai.com:9443", nil, credentials{}, provider.Options{Model: "test-model"}); !errors.Is(err, provider.ErrTransport) {
+		t.Fatalf("unconfirmed nonstandard-port endpoint error = %v, want ErrTransport", err)
 	}
 }
 func stringify(err error) string {

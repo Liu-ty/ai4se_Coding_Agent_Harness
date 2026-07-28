@@ -13,7 +13,7 @@ type OpenAI struct {
 }
 
 func NewOpenAI(endpoint string, client *http.Client, credentials CredentialSource, options Options) (*OpenAI, error) {
-	h, err := newHTTPProvider(endpoint, client, credentials, "openai")
+	h, err := newHTTPProvider(endpoint, client, credentials, "openai", options)
 	if err != nil {
 		return nil, err
 	}

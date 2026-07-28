@@ -30,6 +30,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Verify canonical checkout root
+        shell: pwsh
+        run: |
+          $root = [IO.Path]::GetFullPath((git rev-parse --show-toplevel).Trim())
+          $workspace = [IO.Path]::GetFullPath((Resolve-Path $env:GITHUB_WORKSPACE).Path)
+          $comparison = if ($env:RUNNER_OS -eq 'Windows') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+          if (-not [string]::Equals($root, $workspace, $comparison)) { throw "checkout root mismatch: $root != $workspace" }
+
       - name: Verify modules
         run: go mod verify
 

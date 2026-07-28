@@ -90,3 +90,29 @@ func TestSelfTransitionRejected(t *testing.T) {
 		t.Fatalf("expected ErrInvalidTransition, got %v", err)
 	}
 }
+
+func TestEveryActiveStateCanStop(t *testing.T) {
+	for _, state := range []domain.RunState{
+		domain.StateCreated,
+		domain.StatePreflight,
+		domain.StateBaselineValidating,
+		domain.StateDeciding,
+		domain.StateAwaitingApproval,
+		domain.StateExecuting,
+		domain.StateValidating,
+		domain.StateFinalValidating,
+	} {
+		if err := domain.Transition(state, domain.StateStopped); err != nil {
+			t.Errorf("%s -> STOPPED: %v", state, err)
+		}
+	}
+}
+
+func TestPreflightApprovalCanPauseAndResumePreflight(t *testing.T) {
+	if err := domain.Transition(domain.StatePreflight, domain.StateAwaitingApproval); err != nil {
+		t.Fatal(err)
+	}
+	if err := domain.Transition(domain.StateAwaitingApproval, domain.StatePreflight); err != nil {
+		t.Fatal(err)
+	}
+}

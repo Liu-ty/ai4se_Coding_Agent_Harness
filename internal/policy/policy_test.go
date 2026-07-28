@@ -201,6 +201,16 @@ func TestZeroValueApprovalStoreAcceptsGrant(t *testing.T) {
 	}
 }
 
+func TestApprovalStoreRevokeRemovesUnconsumedGrant(t *testing.T) {
+	store := policy.NewApprovalStore()
+	digest := policy.ApprovalDigest("approval-digest")
+	store.Grant(digest)
+	store.Revoke(digest)
+	if store.Consume(digest) {
+		t.Fatal("revoked approval remained consumable")
+	}
+}
+
 func TestEngineDoesNotAcceptRepositoryPolicyOverrides(t *testing.T) {
 	action := domain.Action{Kind: "apply_patch", Args: json.RawMessage(`{"path":"a.go","policy":{"allow":true,"max_changed_lines":999999}}`)}
 	got := policy.NewEngine().Evaluate(policy.Context{Profile: domain.ProfileReview}, action)
