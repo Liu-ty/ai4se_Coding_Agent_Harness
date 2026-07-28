@@ -968,7 +968,7 @@ git commit -m "feat: classify and compress validation feedback"
 
 ---
 
-### Task 11: Provider-Neutral Agent Loop and Conditional Mock E2E
+### Task 11: Provider-Neutral Agent Loop and Conditional Mock E2E — complete (`d45e9cd`, follow-up `6fb7536`)
 
 **Files:**
 - Create: `internal/provider/provider.go`
@@ -984,7 +984,7 @@ git commit -m "feat: classify and compress validation feedback"
 - Consumes: store, provider, registry, policy, approvals, validation, feedback, budget, and context assembler.
 - Produces: `provider.Provider.Decide`, `agent.Loop.Run`, `agent.Loop.ResumeApproval`, and the deterministic two-patch mechanism test.
 
-- [ ] **Step 1: Write the failing end-to-end loop test**
+- [x] **Step 1: Write the failing end-to-end loop test**
 
 ```go
 func TestLoopUsesFailureToChangeNextPatch(t *testing.T) {
@@ -999,12 +999,12 @@ func TestLoopUsesFailureToChangeNextPatch(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/agent -run TestLoopUsesFailure -v`  
 Expected: FAIL because provider and loop packages are missing.
 
-- [ ] **Step 3: Define provider request/response and conditional mock**
+- [x] **Step 3: Define provider request/response and conditional mock**
 
 ```go
 type Request struct { Task string; Context []ContextItem; LastFeedback *domain.StructuredFeedback; AllowedActions []string }
@@ -1017,17 +1017,17 @@ type MockCall struct { Request Request; Returned Response }
 
 The mock returns a raw-shell action when no feedback exists; on `POLICY_DENIED` it returns an intentionally incomplete patch; only when `Request.LastFeedback.Category == "TEST_FAILURE"` and evidence names the expected failure does it return the corrected patch, followed by `finish` after passing validation. `Mock.Calls() []MockCall` records both request and response. This makes behavior conditional, not a pre-scripted sequence.
 
-- [ ] **Step 4: Implement one-action loop orchestration**
+- [x] **Step 4: Implement one-action loop orchestration**
 
 For repair runs: preflight state already exists → baseline failure → decide → parse/record → policy → approval/execute → observation → feedback → automatic current-stage validation after mutation → budget/progress → decide; `finish` invokes full validation. Review profile skips baseline/checks, executes reads/searches only, records a denied patch as proposal artifact, and ends `REVIEW_COMPLETE`.
 
 Persist a typed event at every boundary. Never trust `finish` to set success directly. Use the transition table for every state change.
 
-- [ ] **Step 5: Add protocol-repair, approval, no-progress, cancellation, and final-regression tests**
+- [x] **Step 5: Add protocol-repair, approval, no-progress, cancellation, and final-regression tests**
 
 Each test uses mocks and asserts exact terminal state plus event order. The protocol test returns invalid JSON twice and then asserts `PROTOCOL_EXHAUSTED`; the final-regression test passes the active stage but fails the full pipeline and returns to deciding.
 
-- [ ] **Step 6: Run green and commit**
+- [x] **Step 6: Run green and commit**
 
 Run: `go test ./internal/agent -v`  
 Expected: PASS; no network and no real LLM.
@@ -1039,7 +1039,7 @@ git commit -m "feat: close the mock-driven repair loop"
 
 ---
 
-### Task 12: OpenAI-Compatible and Anthropic Provider Adapters
+### Task 12: OpenAI-Compatible and Anthropic Provider Adapters — complete (`ff151af`, follow-ups `6fb7536`, `410b556`, `b6353f3`)
 
 **Files:**
 - Create: `internal/provider/httpclient.go`
@@ -1054,7 +1054,7 @@ git commit -m "feat: close the mock-driven repair loop"
 - Consumes: `provider.Request`, endpoint-bound credential supplier, `http.Client`.
 - Produces: both adapters satisfying `provider.Provider`; errors normalize to auth, rate-limit, invalid-response, timeout, and transport codes.
 
-- [ ] **Step 1: Write local HTTP contract tests before adapters**
+- [x] **Step 1: Write local HTTP contract tests before adapters**
 
 ```go
 func providerContract(t *testing.T, build func(url string, client *http.Client) provider.Provider, handler http.Handler) {
@@ -1068,12 +1068,12 @@ func providerContract(t *testing.T, build func(url string, client *http.Client) 
 
 Add provider-specific handlers that assert OpenAI-compatible `/v1/chat/completions` bearer auth and Anthropic `/v1/messages` `x-api-key` plus version header. Return canonical decision JSON as model text.
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/provider -run 'OpenAI|Anthropic|Contract' -v`  
 Expected: FAIL because adapters are missing.
 
-- [ ] **Step 3: Implement shared safe HTTP behavior**
+- [x] **Step 3: Implement shared safe HTTP behavior**
 
 Use injected `http.Client`, context deadlines, a 1 MiB response limit, no automatic cross-host redirect with Authorization, normalized endpoint host, JSON content type validation, and bounded error bodies. Credential supplier signature:
 
@@ -1083,11 +1083,11 @@ type CredentialSource interface { Get(context.Context, string, string) ([]byte, 
 
 Zero the returned byte slice after constructing the request. Never include headers or request bodies in returned errors.
 
-- [ ] **Step 4: Implement both request/response mappings**
+- [x] **Step 4: Implement both request/response mappings**
 
 OpenAI-compatible sends a system message containing the canonical JSON schema and user/context messages; Anthropic sends the same protocol through top-level system plus messages. Parse only textual JSON into `domain.AgentDecision`, validate protocol version and exactly one action, and return usage fields.
 
-- [ ] **Step 5: Test error normalization and commit**
+- [x] **Step 5: Test error normalization and commit**
 
 Tests: 401, 429 with retry metadata, 500 bounded body, timeout, redirect-to-other-host, malformed JSON, missing content, oversized response, and key never present in error output.
 

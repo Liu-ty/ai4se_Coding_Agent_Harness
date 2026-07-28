@@ -2,6 +2,13 @@
 
 This log records the AI-assisted engineering process. It is append-only by convention. No real credential or unredacted secret may be recorded.
 
+## 2026-07-28 - PR #8 Merge, CI, Review, and Closure
+
+- **Scope:** Pre-Task-13 closure for merged PR #8 (`4cd2455`, branch `codex/agent-providers`).
+- **Merge and CI:** PR #8 merged on 2026-07-28 after the Task 11/12 implementation and follow-up commits `d45e9cd`, `ff151af`, `6fb7536`, `410b556`, and `b6353f3`; its prior task log records the passing task-level suite and review remediation.
+- **Review closure:** GitHub GraphQL reported one remaining unresolved, outdated CodeRabbit thread (`PRRT_kwDOTV9Iy86USI9x`) on `internal/provider/httpclient.go`. Verified on the merge commit that `newHTTPProvider` uses `url.ParseRequestURI`, rejects parse failures, empty scheme/host, and non-HTTP(S) schemes before construction, and retains a defensive request-time check. A fresh isolated-cache `go test ./internal/provider -count=1 -v` passed. Replied with this evidence at `discussion_r3662930115` and resolved the thread; all PR #8 review threads are now resolved.
+- **Plan synchronization:** Tasks 11 and 12 are now marked complete in `PLAN.md`, with their implementation and follow-up commit hashes recorded. Task 13 remains the next planned implementation task; Task 15 is not started.
+
 ## 2026-07-10 — Requirements Review
 
 - **Task:** PRE-001
