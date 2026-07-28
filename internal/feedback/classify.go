@@ -80,6 +80,8 @@ func classify(in Input, text string) (string, []domain.Evidence) {
 	switch upperCode {
 	case "APPROVAL_REQUIRED":
 		return "APPROVAL_REQUIRED", diagnostics
+	case "APPROVAL_REJECTED":
+		return "APPROVAL_REJECTED", diagnostics
 	case "POLICY_DENIED", "UNKNOWN_ACTION", "REPOSITORY_ESCAPE", "PATH_DENIED", "SYMLINK_ESCAPE", "CREDENTIAL_ACCESS", "GIT_INTERNALS", "PROTECTED_PATH", "UNCONFIGURED_CHECK", "RAW_SHELL_DENIED":
 		return "POLICY_DENIED", diagnostics
 	}

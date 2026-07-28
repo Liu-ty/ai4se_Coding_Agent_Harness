@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"sync"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
@@ -53,6 +54,29 @@ func (s *MemoryStore) CreateRun(ctx context.Context, run domain.Run) error {
 	return nil
 }
 
+func (s *MemoryStore) CreateRunWithEvent(
+	ctx context.Context,
+	run domain.Run,
+	eventType string,
+	payload json.RawMessage,
+) (domain.RunEvent, error) {
+	if err := validateEvent(run.ID, eventType); err != nil {
+		return domain.RunEvent{}, err
+	}
+	if err := checkContext(ctx); err != nil {
+		return domain.RunEvent{}, err
+	}
+	run = normalizeRun(run)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.runs[run.ID]; ok {
+		return domain.RunEvent{}, storeport.ErrRunAlreadyExists
+	}
+	s.runs[run.ID] = run
+	event := s.appendLocked(run.ID, eventType, payload)
+	return cloneEvent(event), nil
+}
+
 func (s *MemoryStore) UpdateRun(ctx context.Context, run domain.Run, eventType string, payload json.RawMessage) (domain.RunEvent, error) {
 	if err := validateEvent(run.ID, eventType); err != nil {
 		return domain.RunEvent{}, err
@@ -64,6 +88,34 @@ func (s *MemoryStore) UpdateRun(ctx context.Context, run domain.Run, eventType s
 	defer s.mu.Unlock()
 	if _, ok := s.runs[run.ID]; !ok {
 		return domain.RunEvent{}, storeport.ErrRunNotFound
+	}
+	run = normalizeRun(run)
+	event := s.appendLocked(run.ID, eventType, payload)
+	s.runs[run.ID] = run
+	return cloneEvent(event), nil
+}
+
+func (s *MemoryStore) UpdateRunIfState(
+	ctx context.Context,
+	run domain.Run,
+	expected domain.RunState,
+	eventType string,
+	payload json.RawMessage,
+) (domain.RunEvent, error) {
+	if err := validateEvent(run.ID, eventType); err != nil {
+		return domain.RunEvent{}, err
+	}
+	if err := checkContext(ctx); err != nil {
+		return domain.RunEvent{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.runs[run.ID]
+	if !ok {
+		return domain.RunEvent{}, storeport.ErrRunNotFound
+	}
+	if current.State != expected {
+		return domain.RunEvent{}, storeport.ErrRunStateChanged
 	}
 	run = normalizeRun(run)
 	event := s.appendLocked(run.ID, eventType, payload)
@@ -112,6 +164,20 @@ func (s *MemoryStore) GetRun(ctx context.Context, runID domain.RunID) (domain.Ru
 		return domain.Run{}, storeport.ErrRunNotFound
 	}
 	return run, nil
+}
+
+func (s *MemoryStore) ListRuns(ctx context.Context) ([]domain.Run, error) {
+	if err := checkContext(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	runs := make([]domain.Run, 0, len(s.runs))
+	for _, run := range s.runs {
+		runs = append(runs, run)
+	}
+	sort.Slice(runs, func(i, j int) bool { return runs[i].ID < runs[j].ID })
+	return runs, nil
 }
 
 func (s *MemoryStore) ListEvents(ctx context.Context, runID domain.RunID, fromSequence uint64) ([]domain.RunEvent, error) {

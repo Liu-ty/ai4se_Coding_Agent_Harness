@@ -13,7 +13,7 @@ type Anthropic struct {
 }
 
 func NewAnthropic(endpoint string, client *http.Client, credentials CredentialSource, options Options) (*Anthropic, error) {
-	h, err := newHTTPProvider(endpoint, client, credentials, "anthropic")
+	h, err := newHTTPProvider(endpoint, client, credentials, "anthropic", options)
 	if err != nil {
 		return nil, err
 	}

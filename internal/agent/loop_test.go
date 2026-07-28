@@ -15,6 +15,7 @@ import (
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/policy"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/provider"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/store"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/storeport"
 )
 
 // The protected production break is replacing conditional feedback-driven
@@ -130,6 +131,218 @@ func TestResumeApprovalConsumesExactPendingActionOnce(t *testing.T) {
 	assertEvents(t, mem, run.ID, "ApprovalRequired", "ApprovalGranted", "RunSucceeded")
 }
 
+func TestApprovalDigestBindsRunBaselines(t *testing.T) {
+	run := newRun()
+	run.Profile = domain.ProfileSupervised
+	mem := store.NewMemory()
+	if err := mem.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	patch := patchAction("- return 1", "+ return 2")
+	approvals := policy.NewApprovalStore()
+	loop := agent.New(agent.Dependencies{
+		Store: mem, Provider: provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
+			return provider.Response{Decision: decision(patch)}, nil
+		}), Actions: &countingRunner{}, Policy: policy.NewEngine(), Approvals: approvals,
+		Baselines: map[string]string{"worktree": "current-baseline"}, Feedback: feedback.Pipeline{},
+		Validation: &checks{}, Budget: budget.New(budget.Limits{MaxDecisions: 2, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute}, fixedClock{}),
+	})
+	if _, err := loop.Run(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	stale := policy.Digest(run.ID, run.Profile, patch, map[string]string{"worktree": "stale-baseline"})
+	approvals.Grant(stale)
+	if _, err := loop.ResumeApproval(context.Background(), run.ID, stale); !errors.Is(err, agent.ErrApprovalNotGranted) {
+		t.Fatalf("stale baseline approval error = %v", err)
+	}
+}
+
+func TestApprovedValidationFailureFeedsBackAndRedecides(t *testing.T) {
+	run := newRun()
+	run.Profile = domain.ProfileSupervised
+	mem := store.NewMemory()
+	if err := mem.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	patch := patchAction("- return 1", "+ return 2")
+	var sawFeedback bool
+	decisions := 0
+	mock := provider.NewMock(func(_ context.Context, request provider.Request) (provider.Response, error) {
+		decisions++
+		if decisions == 1 {
+			return provider.Response{Decision: decision(patch)}, nil
+		}
+		sawFeedback = request.LastFeedback != nil && request.LastFeedback.Category == "TEST_FAILURE"
+		return provider.Response{Decision: decision(action("finish", `{}`))}, nil
+	})
+	approvals := policy.NewApprovalStore()
+	loop := agent.New(agent.Dependencies{
+		Store: mem, Provider: mock, Actions: &countingRunner{}, Policy: policy.NewEngine(), Approvals: approvals,
+		Feedback: feedback.Pipeline{}, Validation: &checks{results: []agent.ValidationResult{fail("unit"), pass("full")}},
+		Budget: budget.New(budget.Limits{MaxDecisions: 3, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute}, fixedClock{}),
+	})
+	if _, err := loop.Run(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	digest := policy.Digest(run.ID, run.Profile, patch, nil)
+	approvals.Grant(digest)
+	result, err := loop.ResumeApproval(context.Background(), run.ID, digest)
+	if err != nil || result.State != domain.StateSucceeded || !sawFeedback {
+		t.Fatalf("resumed result/feedback = %#v/%v/%v", result, sawFeedback, err)
+	}
+	assertEvents(t, mem, run.ID, "ValidationFailed", "FeedbackProduced", "RunSucceeded")
+}
+
+func TestRejectApprovalEitherStopsOrFeedsBackWithoutExecution(t *testing.T) {
+	t.Run("terminate", func(t *testing.T) {
+		run := newRun()
+		run.Profile = domain.ProfileSupervised
+		mem := store.NewMemory()
+		if err := mem.CreateRun(context.Background(), run); err != nil {
+			t.Fatal(err)
+		}
+		patch := patchAction("- return 1", "+ return 2")
+		exec := &countingRunner{}
+		loop := agent.New(agent.Dependencies{
+			Store: mem, Provider: provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
+				return provider.Response{Decision: decision(patch)}, nil
+			}), Actions: exec, Policy: policy.NewEngine(), Feedback: feedback.Pipeline{},
+			Validation: &checks{}, Budget: budget.New(budget.Limits{
+				MaxDecisions: 2, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute,
+			}, fixedClock{}),
+		})
+		pending, err := loop.Run(context.Background(), run)
+		if err != nil || pending.State != domain.StateAwaitingApproval {
+			t.Fatalf("pending = %#v, %v", pending, err)
+		}
+		digest := policy.Digest(run.ID, run.Profile, patch, nil)
+		stopped, err := loop.RejectApproval(context.Background(), run.ID, digest, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stopped.State != domain.StateStopped || stopped.StopCode != "APPROVAL_REJECTED" || exec.calls != 0 {
+			t.Fatalf("result/calls = %#v/%d", stopped, exec.calls)
+		}
+		if _, err := loop.RejectApproval(context.Background(), run.ID, digest, true); err == nil {
+			t.Fatal("rejected pending action remained reusable")
+		}
+	})
+
+	t.Run("feedback", func(t *testing.T) {
+		run := newRun()
+		run.Profile = domain.ProfileSupervised
+		mem := store.NewMemory()
+		if err := mem.CreateRun(context.Background(), run); err != nil {
+			t.Fatal(err)
+		}
+		patch := patchAction("- return 1", "+ return 2")
+		var sawRejectedFeedback bool
+		mock := provider.NewMock(func(_ context.Context, request provider.Request) (provider.Response, error) {
+			if request.LastFeedback == nil {
+				return provider.Response{Decision: decision(patch)}, nil
+			}
+			sawRejectedFeedback = request.LastFeedback.Category == "APPROVAL_REJECTED"
+			return provider.Response{Decision: decision(action("finish", `{}`))}, nil
+		})
+		exec := &countingRunner{}
+		loop := agent.New(agent.Dependencies{
+			Store: mem, Provider: mock, Actions: exec, Policy: policy.NewEngine(),
+			Feedback: feedback.Pipeline{}, Validation: &checks{results: []agent.ValidationResult{pass("full")}},
+			Budget: budget.New(budget.Limits{
+				MaxDecisions: 3, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute,
+			}, fixedClock{}),
+		})
+		if _, err := loop.Run(context.Background(), run); err != nil {
+			t.Fatal(err)
+		}
+		digest := policy.Digest(run.ID, run.Profile, patch, nil)
+		result, err := loop.RejectApproval(context.Background(), run.ID, digest, false)
+		if err != nil {
+			events, _ := mem.ListEvents(context.Background(), run.ID, 1)
+			stored, _ := mem.GetRun(context.Background(), run.ID)
+			t.Fatalf("%v; stored=%#v events=%#v", err, stored, events)
+		}
+		if result.State != domain.StateSucceeded || !sawRejectedFeedback || exec.calls != 0 {
+			t.Fatalf("result/feedback/calls = %#v/%v/%d", result, sawRejectedFeedback, exec.calls)
+		}
+		assertEvents(t, mem, run.ID, "ApprovalRejected", "FeedbackProduced", "RunSucceeded")
+	})
+}
+
+func TestRejectApprovalRetainsPendingActionWhenPersistenceFails(t *testing.T) {
+	run := newRun()
+	run.Profile = domain.ProfileSupervised
+	base := store.NewMemory()
+	if err := base.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	st := &failEventStore{Store: base}
+	patch := patchAction("- return 1", "+ return 2")
+	loop := agent.New(agent.Dependencies{
+		Store: st, Provider: provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
+			return provider.Response{Decision: decision(patch)}, nil
+		}), Actions: &countingRunner{}, Policy: policy.NewEngine(), Feedback: feedback.Pipeline{},
+		Validation: &checks{}, Budget: budget.New(budget.Limits{
+			MaxDecisions: 2, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute,
+		}, fixedClock{}),
+	})
+	if _, err := loop.Run(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	digest := policy.Digest(run.ID, run.Profile, patch, nil)
+	st.failType = "ApprovalRejected"
+	if _, err := loop.RejectApproval(context.Background(), run.ID, digest, true); err == nil {
+		t.Fatal("injected persistence failure was not returned")
+	}
+	st.failType = ""
+	result, err := loop.RejectApproval(context.Background(), run.ID, digest, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != domain.StateStopped {
+		t.Fatalf("retry result = %#v", result)
+	}
+}
+
+func TestLoopConditionalTransitionCannotOverwriteNewerTerminalState(t *testing.T) {
+	run := newRun()
+	run.Profile = domain.ProfileSupervised
+	mem := store.NewMemory()
+	if err := mem.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	patch := patchAction("- return 1", "+ return 2")
+	approvals := policy.NewApprovalStore()
+	loop := agent.New(agent.Dependencies{
+		Store: mem, Provider: provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
+			return provider.Response{Decision: decision(patch)}, nil
+		}), Actions: &countingRunner{}, Policy: policy.NewEngine(), Approvals: approvals,
+		Feedback: feedback.Pipeline{}, Validation: &checks{}, Budget: budget.New(budget.Limits{
+			MaxDecisions: 2, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute,
+		}, fixedClock{}),
+	})
+	if _, err := loop.Run(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := mem.GetRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.State = domain.StateStopped
+	if _, err := mem.UpdateRun(context.Background(), stored, "ConcurrentStop", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	digest := policy.Digest(run.ID, run.Profile, patch, nil)
+	approvals.Grant(digest)
+	if _, err := loop.ResumeApproval(context.Background(), run.ID, digest); !errors.Is(err, storeport.ErrRunStateChanged) {
+		t.Fatalf("resume error = %v, want ErrRunStateChanged", err)
+	}
+	got, err := mem.GetRun(context.Background(), run.ID)
+	if err != nil || got.State != domain.StateStopped {
+		t.Fatalf("stored run = %#v, %v", got, err)
+	}
+}
+
 func TestLoopReturnsToDecidingWhenFinalValidationRegresses(t *testing.T) {
 	run := newRun()
 	mem := store.NewMemory()
@@ -243,6 +456,23 @@ func (r *countingRunner) Execute(context.Context, domain.Action) (agent.ActionRe
 }
 
 type checks struct{ results []agent.ValidationResult }
+
+type failEventStore struct {
+	storeport.Store
+	failType string
+}
+
+func (s *failEventStore) AppendEvent(
+	ctx context.Context,
+	id domain.RunID,
+	eventType string,
+	payload json.RawMessage,
+) (domain.RunEvent, error) {
+	if eventType == s.failType {
+		return domain.RunEvent{}, errors.New("injected event failure")
+	}
+	return s.Store.AppendEvent(ctx, id, eventType, payload)
+}
 
 type panicChecks struct{ t *testing.T }
 

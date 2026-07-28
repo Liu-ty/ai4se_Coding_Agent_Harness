@@ -4,13 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
+
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/budget"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/feedback"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/policy"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/provider"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/storeport"
-	"sync"
+)
+
+var (
+	ErrApprovalNotGranted        = errors.New("approval is not granted for the pending action")
+	ErrApprovalRejectionMismatch = errors.New("approval rejection does not match the pending action")
 )
 
 type ActionResult struct {
@@ -41,6 +47,7 @@ type Dependencies struct {
 	Progress   *budget.ProgressDetector
 	Approvals  *policy.ApprovalStore
 	Context    ContextAssembler
+	Baselines  map[string]string
 }
 type pendingApproval struct {
 	run    domain.Run
@@ -58,7 +65,23 @@ type Result struct {
 }
 
 func New(d Dependencies) *Loop { return &Loop{d: d, pending: make(map[domain.RunID]pendingApproval)} }
+
+// BindBaselines replaces the immutable snapshot incorporated into future
+// approval digests. Composition calls this before the loop starts.
+func (l *Loop) BindBaselines(baselines map[string]string) {
+	copyOfBaselines := make(map[string]string, len(baselines))
+	for path, hash := range baselines {
+		copyOfBaselines[path] = hash
+	}
+	l.mu.Lock()
+	l.d.Baselines = copyOfBaselines
+	l.mu.Unlock()
+}
+
 func (l *Loop) Run(ctx context.Context, run domain.Run) (Result, error) {
+	return l.run(ctx, run, nil)
+}
+func (l *Loop) run(ctx context.Context, run domain.Run, last *domain.StructuredFeedback) (Result, error) {
 	if ctx.Err() != nil {
 		return l.stop(ctx, &run, "USER_CANCELLED")
 	}
@@ -84,7 +107,6 @@ func (l *Loop) Run(ctx context.Context, run domain.Run) (Result, error) {
 			return Result{}, err
 		}
 	}
-	var last *domain.StructuredFeedback
 	for {
 		if err := ctx.Err(); err != nil {
 			return l.stop(ctx, &run, "USER_CANCELLED")
@@ -106,7 +128,15 @@ func (l *Loop) Run(ctx context.Context, run domain.Run) (Result, error) {
 			return l.stop(ctx, &run, "BUDGET_EXHAUSTED")
 		}
 		action := response.Decision.Action
-		decision := l.d.Policy.Evaluate(policy.Context{RunID: run.ID, Profile: run.Profile}, action)
+		l.mu.Lock()
+		baselines := make(map[string]string, len(l.d.Baselines))
+		for path, hash := range l.d.Baselines {
+			baselines[path] = hash
+		}
+		l.mu.Unlock()
+		decision := l.d.Policy.Evaluate(policy.Context{
+			RunID: run.ID, Profile: run.Profile, Baselines: baselines,
+		}, action)
 		if decision.Verdict == policy.Deny {
 			last = l.feedback(run, "POLICY_DENIED", domain.Observation{Stdout: decision.Message})
 			if err := l.event(ctx, run, "PolicyDenied", decision); err != nil {
@@ -118,10 +148,14 @@ func (l *Loop) Run(ctx context.Context, run domain.Run) (Result, error) {
 			continue
 		}
 		if decision.Verdict == policy.RequireApproval {
+			result, err := l.await(ctx, &run)
+			if err != nil {
+				return Result{}, err
+			}
 			l.mu.Lock()
 			l.pending[run.ID] = pendingApproval{run: run, action: action, digest: decision.Digest}
 			l.mu.Unlock()
-			return l.await(ctx, &run)
+			return result, nil
 		}
 		if err := l.transition(ctx, &run, domain.StateExecuting, "ActionExecuting"); err != nil {
 			return Result{}, err
@@ -211,7 +245,7 @@ func (l *Loop) ResumeApproval(ctx context.Context, runID domain.RunID, digest po
 	pending, ok := l.pending[runID]
 	l.mu.Unlock()
 	if !ok || pending.digest != digest || l.d.Approvals == nil || !l.d.Approvals.Consume(digest) {
-		return Result{}, errors.New("approval is not granted for the pending action")
+		return Result{}, ErrApprovalNotGranted
 	}
 	if err := l.transition(ctx, &pending.run, domain.StateExecuting, "ApprovalGranted"); err != nil {
 		return Result{}, err
@@ -228,7 +262,18 @@ func (l *Loop) ResumeApproval(ctx context.Context, runID domain.RunID, digest po
 		}
 		current := l.d.Validation.Current(ctx, pending.run)
 		if !current.Passed {
-			return Result{}, errors.New("approval-resumed action did not pass validation")
+			last := l.feedback(pending.run, "", current.Observation)
+			if err := l.event(ctx, pending.run, "ValidationFailed", current); err != nil {
+				return Result{}, err
+			}
+			if err := l.event(ctx, pending.run, "FeedbackProduced", last); err != nil {
+				return Result{}, err
+			}
+			if err := l.transition(ctx, &pending.run, domain.StateDeciding, "ValidationFeedback"); err != nil {
+				return Result{}, err
+			}
+			l.deletePending(runID, digest)
+			return l.run(ctx, pending.run, last)
 		}
 		if err := l.event(ctx, pending.run, "ValidationPassed", current); err != nil {
 			return Result{}, err
@@ -244,6 +289,47 @@ func (l *Loop) ResumeApproval(ctx context.Context, runID domain.RunID, digest po
 	}
 	return l.Run(ctx, pending.run)
 }
+func (l *Loop) RejectApproval(
+	ctx context.Context,
+	runID domain.RunID,
+	digest policy.ApprovalDigest,
+	terminate bool,
+) (Result, error) {
+	l.mu.Lock()
+	pending, ok := l.pending[runID]
+	if !ok || pending.digest != digest {
+		ok = false
+	}
+	l.mu.Unlock()
+	if !ok {
+		return Result{}, ErrApprovalRejectionMismatch
+	}
+	if err := l.event(ctx, pending.run, "ApprovalRejected", struct {
+		Digest policy.ApprovalDigest `json:"digest"`
+	}{Digest: digest}); err != nil {
+		return Result{}, err
+	}
+	if terminate {
+		result, err := l.stop(ctx, &pending.run, "APPROVAL_REJECTED")
+		if err == nil {
+			l.deletePending(runID, digest)
+		}
+		return result, err
+	}
+	rejected := l.feedback(
+		pending.run,
+		"APPROVAL_REJECTED",
+		domain.Observation{Stdout: "user rejected the pending action"},
+	)
+	if err := l.event(ctx, pending.run, "FeedbackProduced", rejected); err != nil {
+		return Result{}, err
+	}
+	if err := l.transition(ctx, &pending.run, domain.StateDeciding, "ApprovalRejectedContinued"); err != nil {
+		return Result{}, err
+	}
+	l.deletePending(runID, digest)
+	return l.run(ctx, pending.run, rejected)
+}
 func (l *Loop) await(ctx context.Context, run *domain.Run) (Result, error) {
 	if err := l.transition(ctx, run, domain.StateAwaitingApproval, "ApprovalRequired"); err != nil {
 		return Result{}, err
@@ -255,13 +341,18 @@ func (l *Loop) stop(ctx context.Context, run *domain.Run, code string) (Result, 
 		if err := domain.Transition(run.State, domain.StateStopped); err != nil {
 			return Result{}, err
 		}
-		run.State = domain.StateStopped
+		expected := run.State
+		stopped := *run
+		stopped.State = domain.StateStopped
 		payload, _ := json.Marshal(struct {
 			Reason string `json:"reason"`
 		}{Reason: code})
-		if _, err := l.d.Store.UpdateRun(context.WithoutCancel(ctx), *run, "RunStopped", payload); err != nil {
+		if _, err := l.d.Store.UpdateRunIfState(
+			context.WithoutCancel(ctx), stopped, expected, "RunStopped", payload,
+		); err != nil {
 			return Result{}, err
 		}
+		*run = stopped
 	}
 	return Result{State: run.State, StopCode: code}, nil
 }
@@ -269,9 +360,16 @@ func (l *Loop) transition(ctx context.Context, run *domain.Run, to domain.RunSta
 	if err := domain.Transition(run.State, to); err != nil {
 		return err
 	}
-	run.State = to
-	_, err := l.d.Store.UpdateRun(ctx, *run, event, json.RawMessage(`{}`))
-	return err
+	expected := run.State
+	updated := *run
+	updated.State = to
+	if _, err := l.d.Store.UpdateRunIfState(
+		ctx, updated, expected, event, json.RawMessage(`{}`),
+	); err != nil {
+		return err
+	}
+	*run = updated
+	return nil
 }
 func (l *Loop) event(ctx context.Context, run domain.Run, typ string, payload any) error {
 	data, _ := json.Marshal(payload)
@@ -281,6 +379,13 @@ func (l *Loop) event(ctx context.Context, run domain.Run, typ string, payload an
 func (l *Loop) feedback(run domain.Run, code string, obs domain.Observation) *domain.StructuredFeedback {
 	v := l.d.Feedback.Process(feedback.Input{StageID: run.CurrentStage, Code: code, Observation: obs})
 	return &v
+}
+func (l *Loop) deletePending(runID domain.RunID, digest policy.ApprovalDigest) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if pending, ok := l.pending[runID]; ok && pending.digest == digest {
+		delete(l.pending, runID)
+	}
 }
 func valid(d domain.AgentDecision) bool {
 	return d.Version == "1" && d.Action.Kind != "" && json.Valid(d.Action.Args)

@@ -40,7 +40,15 @@ type recordingStore struct{}
 
 func (*recordingStore) CreateRun(context.Context, domain.Run) error { return nil }
 
+func (*recordingStore) CreateRunWithEvent(context.Context, domain.Run, string, json.RawMessage) (domain.RunEvent, error) {
+	return domain.RunEvent{}, nil
+}
+
 func (*recordingStore) UpdateRun(context.Context, domain.Run, string, json.RawMessage) (domain.RunEvent, error) {
+	return domain.RunEvent{}, nil
+}
+
+func (*recordingStore) UpdateRunIfState(context.Context, domain.Run, domain.RunState, string, json.RawMessage) (domain.RunEvent, error) {
 	return domain.RunEvent{}, nil
 }
 
@@ -51,6 +59,8 @@ func (*recordingStore) AppendEvent(context.Context, domain.RunID, string, json.R
 func (*recordingStore) GetRun(context.Context, domain.RunID) (domain.Run, error) {
 	return domain.Run{}, nil
 }
+
+func (*recordingStore) ListRuns(context.Context) ([]domain.Run, error) { return nil, nil }
 
 func (*recordingStore) ListEvents(context.Context, domain.RunID, uint64) ([]domain.RunEvent, error) {
 	return nil, nil

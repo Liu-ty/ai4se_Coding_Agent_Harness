@@ -67,3 +67,14 @@ func (s *ApprovalStore) Consume(digest ApprovalDigest) bool {
 	delete(s.grants, digest)
 	return true
 }
+
+// Revoke removes an unconsumed approval grant after a nonterminal resume
+// attempt fails, so a later retry still requires an explicit user decision.
+func (s *ApprovalStore) Revoke(digest ApprovalDigest) {
+	if digest == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.grants, digest)
+}

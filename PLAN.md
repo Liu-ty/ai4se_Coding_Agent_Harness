@@ -1180,7 +1180,11 @@ git commit -m "feat: store provider credentials securely"
 
 ---
 
-### Task 14: Application Service, Preflight, and Repository Locking
+### Task 14: Application Service, Preflight, and Repository Locking — complete (this commit)
+
+**Final review remediation:** Credentials may be sent only to HTTPS endpoints or literal loopback-IP HTTP endpoints; non-default endpoint hosts/ports require explicit confirmation. Repository ownership uses a durable, owner-matched cross-process lease and startup recovery releases only the matching abandoned lease. Agent approval digests include captured baseline commit/diff values, and resumed validation failures return structured feedback to re-decision.
+
+**PR #9 remediation:** Vault rolls back a secret when its keyring status marker cannot be written, closes reads explicitly, and syncs the parent directory before reporting a committed post-replacement permission failure; native Windows tests verify a protected, non-inherited DACL. Nonterminal approval errors revoke their one-use grant, lease release is serialized through read/verify/remove cleanup, and empty local-loop checks return failed validation instead of panicking. CI verifies the canonical checkout root.
 
 **Files:**
 - Create: `internal/app/service.go`
@@ -1188,13 +1192,19 @@ git commit -m "feat: store provider credentials securely"
 - Create: `internal/app/repolock.go`
 - Create: `internal/app/composition_local.go`
 - Test: `internal/app/service_test.go`
+- Modify: `internal/agent/loop.go`
+- Modify: `internal/domain/state.go`
+- Modify: `internal/feedback/classify.go`
+- Modify: `internal/store/`
+- Modify: `internal/storeport/`
+- Modify: `PLAN.md`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**
 - Consumes: config loader, store, loop factory, credentials, Git/workspace, clock.
 - Produces: `app.Service.Preflight/CreateRun/GetRun/ListRuns/CancelRun/Approve/Reject`, `PreflightReport`, and one-active-run-per-repository locking.
 
-- [ ] **Step 1: Write failing preflight and concurrency tests**
+- [x] **Step 1: Write failing preflight and concurrency tests**
 
 ```go
 func TestWorkspaceAutoRejectsDirtyRepository(t *testing.T) {
@@ -1209,21 +1219,21 @@ func TestOnlyOneActiveRunPerCanonicalRepository(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/app -v`  
 Expected: FAIL because app package is missing.
 
-- [ ] **Step 3: Implement preflight with distinct findings**
+- [x] **Step 3: Implement preflight with distinct findings**
 
 Check canonical Git root, Git executable, baseline commit/diff, config, platform stage resolution, executable lookup, key status, profile, dirty-worktree rule, and data-directory writability. Return ordered `Finding{Code, Severity, Message}` values; never include a secret or raw Authorization value.
 
-- [ ] **Step 4: Implement use cases and canonical repository locks**
+- [x] **Step 4: Implement use cases and canonical repository locks**
 
 ```go
 type CreateRunRequest struct { RepoRoot, Task, Provider, Model, Endpoint string; Profile domain.PermissionProfile; ConfigPath string }
 type PreflightReport struct { OK bool; Findings []Finding; BaselineCommit, BaselineDiffHash string }
-type LoopController interface { Start(context.Context, domain.Run) error; Approve(context.Context, domain.RunID, string) error; Reject(context.Context, domain.RunID, string, bool) error; Cancel(context.Context, domain.RunID) error }
+type LoopController interface { Start(context.Context, RunSetup) error; Approve(context.Context, domain.RunID, string) error; Reject(context.Context, domain.RunID, string, bool) error; Cancel(context.Context, domain.RunID) error }
 type Service struct { store storeport.Store; locks *RepoLocks; loops LoopController; creds *credentials.Service }
 func (s *Service) Preflight(context.Context, CreateRunRequest) PreflightReport
 func (s *Service) CreateRun(context.Context, CreateRunRequest) (domain.Run, error)
@@ -1234,13 +1244,13 @@ func (s *Service) CancelRun(context.Context, domain.RunID) error
 
 Release repository locks on every terminal state and on startup recovery of abandoned local runs. Never reset/clean/revert the repository.
 
-- [ ] **Step 5: Run green and commit**
+- [x] **Step 5: Run green and commit**
 
 Run: `go test ./internal/app -v`  
 Expected: PASS for clean/dirty profiles, missing Git/check/key, endpoint mismatch, same path via symlink, concurrent create, cancel, approve/reject, and lock release.
 
 ```powershell
-git add internal/app AGENT_LOG.md
+git add internal/app internal/agent internal/domain internal/feedback internal/store internal/storeport PLAN.md AGENT_LOG.md
 git commit -m "feat: orchestrate safe local harness runs"
 ```
 

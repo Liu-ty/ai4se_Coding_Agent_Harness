@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -30,9 +31,12 @@ type httpProvider struct {
 	kind        string
 }
 
-func newHTTPProvider(endpoint string, client *http.Client, credentials CredentialSource, kind string) (*httpProvider, error) {
+func newHTTPProvider(endpoint string, client *http.Client, credentials CredentialSource, kind string, options Options) (*httpProvider, error) {
 	u, err := url.ParseRequestURI(endpoint)
-	if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !safeCredentialTransport(u) {
+		return nil, ErrTransport
+	}
+	if !knownEndpoint(kind, u) && !options.ConfirmCustomEndpoint {
 		return nil, ErrTransport
 	}
 	if client == nil {
@@ -50,6 +54,32 @@ func newHTTPProvider(endpoint string, client *http.Client, credentials Credentia
 		return nil
 	}
 	return &httpProvider{endpoint: u, client: &clone, credentials: credentials, kind: kind}, nil
+}
+
+func safeCredentialTransport(endpoint *url.URL) bool {
+	if endpoint.Scheme == "https" {
+		return true
+	}
+	if endpoint.Scheme != "http" {
+		return false
+	}
+	ip := net.ParseIP(endpoint.Hostname())
+	return ip != nil && ip.IsLoopback()
+}
+
+func knownEndpoint(kind string, endpoint *url.URL) bool {
+	if endpoint.Port() != "" && endpoint.Port() != "443" {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(endpoint.Hostname()), ".")
+	switch kind {
+	case "openai":
+		return host == "api.openai.com"
+	case "anthropic":
+		return host == "api.anthropic.com"
+	default:
+		return false
+	}
 }
 func (p *httpProvider) post(ctx context.Context, path string, body io.Reader, headers func(http.Header, []byte)) ([]byte, error) {
 	if p.endpoint == nil || p.endpoint.Scheme == "" || p.endpoint.Host == "" {

@@ -15,8 +15,9 @@ type Request struct {
 }
 type Usage struct{ InputTokens, OutputTokens int }
 type Options struct {
-	Model     string
-	MaxTokens int
+	Model                 string
+	MaxTokens             int
+	ConfirmCustomEndpoint bool
 }
 type Response struct {
 	Decision domain.AgentDecision
