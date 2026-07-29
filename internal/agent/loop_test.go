@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,6 +155,66 @@ func TestApprovalDigestBindsRunBaselines(t *testing.T) {
 	approvals.Grant(stale)
 	if _, err := loop.ResumeApproval(context.Background(), run.ID, stale); !errors.Is(err, agent.ErrApprovalNotGranted) {
 		t.Fatalf("stale baseline approval error = %v", err)
+	}
+}
+
+func TestApprovalRequiredPublishesRedactedBoundProductionRequest(t *testing.T) {
+	run := newRun()
+	run.Profile = domain.ProfileSupervised
+	mem := store.NewMemory()
+	if err := mem.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	patch := domain.Action{
+		Kind: "apply_patch",
+		Args: json.RawMessage(`{ "patch" : "--- a/bug.go\n+++ b/bug.go\n@@ -1 +1 @@\n-old\n+OPENAI_API_KEY=super-secret-value\n" }`),
+	}
+	baselines := map[string]string{"baseline_diff_hash": "diff-2", "baseline_commit": "commit-1"}
+	loop := agent.New(agent.Dependencies{
+		Store: mem, Provider: provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
+			return provider.Response{Decision: decision(patch)}, nil
+		}), Actions: &countingRunner{}, Policy: policy.NewEngine(),
+		Baselines: baselines, Feedback: feedback.Pipeline{}, Validation: &checks{},
+		Budget: budget.New(budget.Limits{MaxDecisions: 2, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute}, fixedClock{}),
+	})
+
+	if _, err := loop.Run(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	events, err := mem.ListEvents(context.Background(), run.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request agent.ApprovalRequired
+	for _, event := range events {
+		if event.Type == "ApprovalRequired" {
+			if err := json.Unmarshal(event.Payload, &request); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if request.Digest != policy.Digest(run.ID, run.Profile, patch, baselines) {
+		t.Fatalf("digest = %q", request.Digest)
+	}
+	if request.Action.Kind != "apply_patch" || string(request.Action.Args) !=
+		`{"patch":"--- a/bug.go\n+++ b/bug.go\n@@ -1 +1 @@\n-old\n+OPENAI_API_KEY=[REDACTED]\n"}` {
+		t.Fatalf("canonical redacted action = %#v", request.Action)
+	}
+	if len(request.AffectedFiles) != 1 || request.AffectedFiles[0] != "bug.go" {
+		t.Fatalf("affected files = %#v", request.AffectedFiles)
+	}
+	if request.Risk != policy.RiskNormal || request.RiskReason == "" {
+		t.Fatalf("risk = %q reason = %q", request.Risk, request.RiskReason)
+	}
+	if len(request.BaselineEvidence) != 2 ||
+		request.BaselineEvidence[0].Name != "baseline_commit" ||
+		request.BaselineEvidence[0].Digest != "commit-1" ||
+		request.BaselineEvidence[1].Name != "baseline_diff_hash" {
+		t.Fatalf("baseline evidence = %#v", request.BaselineEvidence)
+	}
+	raw := string(events[len(events)-1].Payload)
+	if strings.Contains(raw, "super-secret-value") {
+		t.Fatalf("approval event leaked a secret: %s", raw)
 	}
 }
 

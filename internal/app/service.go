@@ -231,7 +231,8 @@ func (s *Service) GetRun(ctx context.Context, runID domain.RunID) (domain.Run, e
 }
 
 func (s *Service) ListRuns(ctx context.Context) ([]domain.Run, error) {
-	return s.store.ListRuns(ctx)
+	page, err := s.store.ListRuns(ctx, storeport.RunListQuery{})
+	return page.Runs, err
 }
 
 func (s *Service) Approve(ctx context.Context, runID domain.RunID, digest string) error {
@@ -470,11 +471,11 @@ func (s *Service) failActiveControl(run domain.Run, reason string, cause error) 
 }
 
 func (s *Service) recoverRuns(ctx context.Context) error {
-	runs, err := s.store.ListRuns(ctx)
+	page, err := s.store.ListRuns(ctx, storeport.RunListQuery{})
 	if err != nil {
 		return err
 	}
-	for _, run := range runs {
+	for _, run := range page.Runs {
 		if terminal(run.State) {
 			s.locks.ReleaseRun(run.ID)
 			continue

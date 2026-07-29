@@ -147,7 +147,8 @@ func TestEndpointQuerySecretIsRejectedAndNeverPersisted(t *testing.T) {
 	if _, err := svc.CreateRun(context.Background(), req); !errors.Is(err, ErrPreflightFailed) {
 		t.Fatalf("create error = %v, want ErrPreflightFailed", err)
 	}
-	runs, err := st.ListRuns(context.Background())
+	page, err := st.ListRuns(context.Background(), storeport.RunListQuery{})
+	runs := page.Runs
 	if err != nil || len(runs) != 0 {
 		t.Fatalf("persisted runs = %#v, %v", runs, err)
 	}
@@ -679,6 +680,23 @@ func TestNewLocalBindsRunInputsToRealAgentLoopAndApproval(t *testing.T) {
 		"baseline_commit":    received.Report.BaselineCommit,
 		"baseline_diff_hash": received.Report.BaselineDiffHash,
 	})
+	events, err := st.ListEvents(context.Background(), run.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var approval agent.ApprovalRequired
+	for _, event := range events {
+		if event.Type == "ApprovalRequired" {
+			if err := json.Unmarshal(event.Payload, &approval); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if approval.Digest != digest || approval.Action.Kind != "apply_patch" ||
+		len(approval.AffectedFiles) != 1 || approval.AffectedFiles[0] != "a.txt" ||
+		approval.RiskReason == "" || len(approval.BaselineEvidence) != 2 {
+		t.Fatalf("production approval request = %#v", approval)
+	}
 	if err := svc.Approve(context.Background(), run.ID, "wrong-digest"); err == nil {
 		t.Fatal("wrong digest was accepted")
 	}
@@ -810,7 +828,8 @@ func TestCreateRunSetupFailureStopsDurableRunBeforeReleasingLock(t *testing.T) {
 	if err == nil {
 		t.Fatal("injected setup failure was not returned")
 	}
-	runs, listErr := base.ListRuns(context.Background())
+	page, listErr := base.ListRuns(context.Background(), storeport.RunListQuery{})
+	runs := page.Runs
 	if listErr != nil || len(runs) != 1 || runs[0].State != domain.StateStopped {
 		t.Fatalf("durable runs after setup failure = %#v, %v (returned %#v)", runs, listErr, run)
 	}

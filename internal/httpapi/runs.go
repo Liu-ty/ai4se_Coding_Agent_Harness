@@ -10,6 +10,7 @@ import (
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/app"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/storeport"
 )
 
 var (
@@ -95,30 +96,28 @@ func (r *Router) listRuns(
 		)
 		return
 	}
-	stored, err := r.store.ListRuns(request.Context())
+	var fixed []domain.RunID
+	if r.capabilities.FixedRuns != nil {
+		fixed = make([]domain.RunID, 0, len(r.capabilities.FixedRuns))
+		for runID := range r.capabilities.FixedRuns {
+			fixed = append(fixed, runID)
+		}
+	}
+	stored, err := r.store.ListRuns(request.Context(), storeport.RunListQuery{
+		Limit: limit, Offset: offset, IDs: fixed,
+	})
 	if err != nil {
 		r.mapError(writer, err, requestID)
 		return
 	}
-	allowed := make([]runResponse, 0, len(stored))
-	for _, run := range stored {
-		if r.allowedRun(run.ID) {
-			allowed = append(allowed, newRunResponse(run))
-		}
+	page := make([]runResponse, 0, len(stored.Runs))
+	for _, run := range stored.Runs {
+		page = append(page, newRunResponse(run))
 	}
-	start := offset
-	if start > len(allowed) {
-		start = len(allowed)
-	}
-	end := start + limit
-	if end > len(allowed) {
-		end = len(allowed)
-	}
-	page := allowed[start:end]
 	r.writeJSON(writer, http.StatusOK, runPageResponse{
 		Runs: page,
 		Page: paginationResponse{
-			Offset: offset, Limit: limit, Returned: len(page), HasMore: end < len(allowed),
+			Offset: offset, Limit: limit, Returned: len(page), HasMore: stored.HasMore,
 		},
 	})
 }

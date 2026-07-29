@@ -148,13 +148,19 @@ func (l *Loop) run(ctx context.Context, run domain.Run, last *domain.StructuredF
 			continue
 		}
 		if decision.Verdict == policy.RequireApproval {
-			result, err := l.await(ctx, &run)
+			request := newApprovalRequired(run.Profile, action, decision, baselines)
+			pendingRun := run
+			pendingRun.State = domain.StateAwaitingApproval
+			l.mu.Lock()
+			l.pending[run.ID] = pendingApproval{
+				run: pendingRun, action: action, digest: decision.Digest,
+			}
+			l.mu.Unlock()
+			result, err := l.await(ctx, &run, request)
 			if err != nil {
+				l.deletePending(run.ID, decision.Digest)
 				return Result{}, err
 			}
-			l.mu.Lock()
-			l.pending[run.ID] = pendingApproval{run: run, action: action, digest: decision.Digest}
-			l.mu.Unlock()
 			return result, nil
 		}
 		if err := l.transition(ctx, &run, domain.StateExecuting, "ActionExecuting"); err != nil {
@@ -330,8 +336,8 @@ func (l *Loop) RejectApproval(
 	l.deletePending(runID, digest)
 	return l.run(ctx, pending.run, rejected)
 }
-func (l *Loop) await(ctx context.Context, run *domain.Run) (Result, error) {
-	if err := l.transition(ctx, run, domain.StateAwaitingApproval, "ApprovalRequired"); err != nil {
+func (l *Loop) await(ctx context.Context, run *domain.Run, request ApprovalRequired) (Result, error) {
+	if err := l.transitionPayload(ctx, run, domain.StateAwaitingApproval, "ApprovalRequired", request); err != nil {
 		return Result{}, err
 	}
 	return Result{State: run.State, StopCode: "APPROVAL_REQUIRED"}, nil
@@ -357,15 +363,26 @@ func (l *Loop) stop(ctx context.Context, run *domain.Run, code string) (Result, 
 	return Result{State: run.State, StopCode: code}, nil
 }
 func (l *Loop) transition(ctx context.Context, run *domain.Run, to domain.RunState, event string) error {
+	return l.transitionPayload(ctx, run, to, event, json.RawMessage(`{}`))
+}
+func (l *Loop) transitionPayload(
+	ctx context.Context,
+	run *domain.Run,
+	to domain.RunState,
+	event string,
+	value any,
+) error {
 	if err := domain.Transition(run.State, to); err != nil {
 		return err
 	}
 	expected := run.State
 	updated := *run
 	updated.State = to
-	if _, err := l.d.Store.UpdateRunIfState(
-		ctx, updated, expected, event, json.RawMessage(`{}`),
-	); err != nil {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if _, err := l.d.Store.UpdateRunIfState(ctx, updated, expected, event, payload); err != nil {
 		return err
 	}
 	*run = updated

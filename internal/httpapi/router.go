@@ -36,7 +36,7 @@ type Application interface {
 }
 
 type Store interface {
-	ListRuns(context.Context) ([]domain.Run, error)
+	ListRuns(context.Context, storeport.RunListQuery) (storeport.RunPage, error)
 	ListEvents(context.Context, domain.RunID, uint64) ([]domain.RunEvent, error)
 	GetArtifact(context.Context, domain.RunID, string) (domain.Artifact, error)
 }

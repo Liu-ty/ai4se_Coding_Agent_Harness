@@ -1318,6 +1318,7 @@ Routes:
 
 ```text
 POST   /api/v1/runs
+GET    /api/v1/runs?offset={0..1000000}&limit={1..100}
 GET    /api/v1/runs/{id}
 POST   /api/v1/runs/{id}/cancel
 POST   /api/v1/runs/{id}/approvals/{digest}/approve
@@ -1330,6 +1331,19 @@ PUT    /api/v1/credentials/{provider}/{host}
 DELETE /api/v1/credentials/{provider}/{host}
 GET    /healthz
 ```
+
+`GET /api/v1/runs` defaults to `offset=0&limit=50` and returns the exact
+envelope `{"runs":[<run DTO>],"page":{"offset":0,"limit":50,"returned":1,"has_more":false}}`.
+The store applies filtering, `LIMIT`, and `OFFSET` before returning rows,
+ordered by `updated_at DESC, id ASC`. Demo composition supplies its fixed run
+IDs to that store query, so fixed-ID filtering occurs before pagination and
+cannot expose or skip entries because hidden local runs are interleaved.
+
+Production `ApprovalRequired` events use the exact stable DTO
+`{"digest":"...","action":{"kind":"...","args":{...}},"affected_files":["..."],"risk":"NORMAL|GUARDED","risk_reason":"...","baseline_evidence":[{"name":"baseline_commit","digest":"..."}]}`.
+The digest binds the exact unredacted canonical request; the published action
+and reason are redacted for operator display, and baseline evidence is sorted
+by name.
 
 Errors use the exact envelope shape `{"error":{"code":"INVALID_JSON","message":"request body is not valid JSON","request_id":"req-123"}}`; messages are redacted and bounded.
 

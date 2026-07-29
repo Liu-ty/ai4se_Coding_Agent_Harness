@@ -319,16 +319,41 @@ func (s *SQLiteStore) GetRun(ctx context.Context, runID domain.RunID) (domain.Ru
 	return run, nil
 }
 
-func (s *SQLiteStore) ListRuns(ctx context.Context) (runs []domain.Run, err error) {
-	if err := checkContext(ctx); err != nil {
-		return nil, err
+func (s *SQLiteStore) ListRuns(ctx context.Context, query storeport.RunListQuery) (page storeport.RunPage, err error) {
+	if query.Limit < 0 || query.Offset < 0 {
+		return storeport.RunPage{}, storeport.ErrInvalidRunList
 	}
-	runs = make([]domain.Run, 0)
-	rows, err := s.db.QueryContext(ctx, `
+	if err := checkContext(ctx); err != nil {
+		return storeport.RunPage{}, err
+	}
+	page.Runs = make([]domain.Run, 0)
+	statement := `
 		SELECT id, state, profile, task, repo_root, current_stage, created_at, updated_at
-		FROM runs ORDER BY id`)
+		FROM runs`
+	args := make([]any, 0, len(query.IDs)+2)
+	if query.IDs != nil {
+		if len(query.IDs) == 0 {
+			statement += ` WHERE 0`
+		} else {
+			placeholders := make([]string, len(query.IDs))
+			for index, id := range query.IDs {
+				placeholders[index] = "?"
+				args = append(args, id)
+			}
+			statement += ` WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+		}
+	}
+	statement += ` ORDER BY updated_at DESC, id ASC`
+	if query.Limit > 0 {
+		statement += ` LIMIT ? OFFSET ?`
+		args = append(args, query.Limit+1, query.Offset)
+	} else if query.Offset > 0 {
+		statement += ` LIMIT -1 OFFSET ?`
+		args = append(args, query.Offset)
+	}
+	rows, err := s.db.QueryContext(ctx, statement, args...)
 	if err != nil {
-		return nil, err
+		return storeport.RunPage{}, err
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil && err == nil {
@@ -339,16 +364,20 @@ func (s *SQLiteStore) ListRuns(ctx context.Context) (runs []domain.Run, err erro
 		var run domain.Run
 		var createdAt, updatedAt int64
 		if err := rows.Scan(&run.ID, &run.State, &run.Profile, &run.Task, &run.RepoRoot, &run.CurrentStage, &createdAt, &updatedAt); err != nil {
-			return nil, err
+			return storeport.RunPage{}, err
 		}
 		run.CreatedAt = loadTime(createdAt)
 		run.UpdatedAt = loadTime(updatedAt)
-		runs = append(runs, run)
+		page.Runs = append(page.Runs, run)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return storeport.RunPage{}, err
 	}
-	return runs, nil
+	if query.Limit > 0 && len(page.Runs) > query.Limit {
+		page.Runs = page.Runs[:query.Limit]
+		page.HasMore = true
+	}
+	return page, nil
 }
 
 func storeTime(value time.Time) int64 {

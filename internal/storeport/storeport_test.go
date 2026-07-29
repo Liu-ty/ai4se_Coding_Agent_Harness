@@ -60,7 +60,9 @@ func (*recordingStore) GetRun(context.Context, domain.RunID) (domain.Run, error)
 	return domain.Run{}, nil
 }
 
-func (*recordingStore) ListRuns(context.Context) ([]domain.Run, error) { return nil, nil }
+func (*recordingStore) ListRuns(context.Context, storeport.RunListQuery) (storeport.RunPage, error) {
+	return storeport.RunPage{}, nil
+}
 
 func (*recordingStore) ListEvents(context.Context, domain.RunID, uint64) ([]domain.RunEvent, error) {
 	return nil, nil

@@ -568,19 +568,26 @@ func TestCredentialMutationCanaryIsRedactedFromLaterEvents(t *testing.T) {
 
 func TestDemoCapabilitiesPruneLocalAndNonFixedRoutes(t *testing.T) {
 	application := &fakeApplication{runs: map[domain.RunID]domain.Run{
-		"fixed": {ID: "fixed", State: domain.StateSucceeded},
+		"fixed":     {ID: "fixed", State: domain.StateSucceeded},
+		"fixed-old": {ID: "fixed-old", State: domain.StateSucceeded},
 	}}
 	st := store.NewMemory()
-	if err := st.CreateRun(context.Background(), domain.Run{ID: "fixed"}); err != nil {
+	now := time.Now().UTC()
+	if err := st.CreateRun(context.Background(), domain.Run{ID: "fixed", UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.CreateRun(context.Background(), domain.Run{
-		ID: "hidden", Task: canarySecret,
+		ID: "hidden", Task: canarySecret, UpdatedAt: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateRun(context.Background(), domain.Run{
+		ID: "fixed-old", UpdatedAt: now.Add(-2 * time.Hour),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	overbroad := httpapi.LocalCapabilities()
-	overbroad.FixedRuns = map[domain.RunID]struct{}{"fixed": {}}
+	overbroad.FixedRuns = map[domain.RunID]struct{}{"fixed": {}, "fixed-old": {}}
 	api, err := httpapi.NewDemo(httpapi.Options{
 		Application:       application,
 		Store:             st,
@@ -616,7 +623,7 @@ func TestDemoCapabilitiesPruneLocalAndNonFixedRoutes(t *testing.T) {
 	}
 
 	listRR := httptest.NewRecorder()
-	api.ServeHTTP(listRR, httptest.NewRequest(http.MethodGet, "/api/v1/runs?limit=10", nil))
+	api.ServeHTTP(listRR, httptest.NewRequest(http.MethodGet, "/api/v1/runs?offset=1&limit=1", nil))
 	if listRR.Code != http.StatusOK {
 		t.Fatalf("demo list status = %d, body = %s", listRR.Code, listRR.Body.String())
 	}
@@ -628,7 +635,7 @@ func TestDemoCapabilitiesPruneLocalAndNonFixedRoutes(t *testing.T) {
 	if err := json.Unmarshal(listRR.Body.Bytes(), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Runs) != 1 || listed.Runs[0].ID != "fixed" ||
+	if len(listed.Runs) != 1 || listed.Runs[0].ID != "fixed-old" ||
 		strings.Contains(listRR.Body.String(), "hidden") ||
 		strings.Contains(listRR.Body.String(), canarySecret) {
 		t.Fatalf("demo list escaped fixed capabilities: %s", listRR.Body.String())

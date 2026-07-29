@@ -166,18 +166,48 @@ func (s *MemoryStore) GetRun(ctx context.Context, runID domain.RunID) (domain.Ru
 	return run, nil
 }
 
-func (s *MemoryStore) ListRuns(ctx context.Context) ([]domain.Run, error) {
+func (s *MemoryStore) ListRuns(ctx context.Context, query storeport.RunListQuery) (storeport.RunPage, error) {
+	if query.Limit < 0 || query.Offset < 0 {
+		return storeport.RunPage{}, storeport.ErrInvalidRunList
+	}
 	if err := checkContext(ctx); err != nil {
-		return nil, err
+		return storeport.RunPage{}, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	runs := make([]domain.Run, 0, len(s.runs))
+	var allowed map[domain.RunID]struct{}
+	if query.IDs != nil {
+		allowed = make(map[domain.RunID]struct{}, len(query.IDs))
+		for _, id := range query.IDs {
+			allowed[id] = struct{}{}
+		}
+	}
 	for _, run := range s.runs {
+		if allowed != nil {
+			if _, ok := allowed[run.ID]; !ok {
+				continue
+			}
+		}
 		runs = append(runs, run)
 	}
-	sort.Slice(runs, func(i, j int) bool { return runs[i].ID < runs[j].ID })
-	return runs, nil
+	sort.Slice(runs, func(i, j int) bool {
+		if runs[i].UpdatedAt.Equal(runs[j].UpdatedAt) {
+			return runs[i].ID < runs[j].ID
+		}
+		return runs[i].UpdatedAt.After(runs[j].UpdatedAt)
+	})
+	start := query.Offset
+	if start > len(runs) {
+		start = len(runs)
+	}
+	end := len(runs)
+	hasMore := false
+	if query.Limit > 0 && start+query.Limit < end {
+		end = start + query.Limit
+		hasMore = true
+	}
+	return storeport.RunPage{Runs: runs[start:end], HasMore: hasMore}, nil
 }
 
 func (s *MemoryStore) ListEvents(ctx context.Context, runID domain.RunID, fromSequence uint64) ([]domain.RunEvent, error) {

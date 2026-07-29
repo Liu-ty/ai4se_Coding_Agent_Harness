@@ -168,9 +168,10 @@ func TestApprovalDigestBindsExactRequest(t *testing.T) {
 	c := policy.Digest("run-1", domain.ProfileSupervised, action, map[string]string{"a.go": "changed", "b.go": "two"})
 	d := policy.Digest("run-1", domain.ProfileWorkspaceAuto, action, map[string]string{"a.go": "one", "b.go": "two"})
 	e := policy.Digest("run-1", domain.ProfileSupervised, domain.Action{Kind: "apply_patch", Args: json.RawMessage(`{"path":"a.go","patch":"two"}`)}, map[string]string{"a.go": "one", "b.go": "two"})
+	f := policy.Digest("run-1", domain.ProfileSupervised, domain.Action{Kind: "apply_patch", Args: json.RawMessage(`{ "patch" : "one", "path" : "a.go" }`)}, map[string]string{"a.go": "one", "b.go": "two"})
 
-	if a == "" || a != b || a == c || a == d || a == e {
-		t.Fatalf("unexpected digest binding: %q %q %q %q %q", a, b, c, d, e)
+	if a == "" || a != b || a != f || a == c || a == d || a == e {
+		t.Fatalf("unexpected digest binding: %q %q %q %q %q %q", a, b, c, d, e, f)
 	}
 }
 
