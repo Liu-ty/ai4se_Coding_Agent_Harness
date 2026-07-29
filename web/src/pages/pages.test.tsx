@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
@@ -95,6 +95,44 @@ it("credential not-found response maps to the unconfigured state", async () => {
     ))}
     onSave={vi.fn()} onClear={vi.fn()} />);
   expect(await screen.findByText(/add a credential/i)).toBeVisible();
+});
+
+it("does not let a save completion for an old identity replace the current status", async () => {
+  let resolveSave!: () => void;
+  const onSave = vi.fn(() => new Promise<void>((resolve) => { resolveSave = resolve; }));
+  const loadStatus = vi.fn(async (provider: string, host: string) => ({
+    ref: { provider, host },
+    configured: true,
+    backend: provider === "anthropic" ? "new-backend" : "stale-backend",
+    updated_at: "2026-07-29T00:00:00Z",
+  }));
+  render(<Credentials loadStatus={loadStatus} onSave={onSave} onClear={vi.fn()} />);
+  expect(await screen.findByText(/configured in stale-backend/i)).toBeVisible();
+  await userEvent.type(screen.getByLabelText("Secret"), "canary-value");
+  await userEvent.click(screen.getByRole("button", { name: "Update credential" }));
+  fireEvent.change(screen.getByLabelText("Provider"), { target: { value: " ANTHROPIC " } });
+  expect(await screen.findByText(/configured in new-backend/i)).toBeVisible();
+  await act(async () => resolveSave());
+  expect(screen.getByText(/configured in new-backend/i)).toBeVisible();
+  expect(screen.queryByText(/configured in stale-backend/i)).toBeNull();
+});
+
+it("does not let a clear completion for an old identity clear the current status", async () => {
+  let resolveClear!: () => void;
+  const onClear = vi.fn(() => new Promise<void>((resolve) => { resolveClear = resolve; }));
+  const loadStatus = vi.fn(async (provider: string, host: string) => ({
+    ref: { provider, host },
+    configured: true,
+    backend: provider === "anthropic" ? "new-backend" : "old-backend",
+    updated_at: "2026-07-29T00:00:00Z",
+  }));
+  render(<Credentials loadStatus={loadStatus} onSave={vi.fn()} onClear={onClear} />);
+  await userEvent.click(await screen.findByRole("button", { name: "Clear credential" }));
+  fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "anthropic" } });
+  expect(await screen.findByText(/configured in new-backend/i)).toBeVisible();
+  await act(async () => resolveClear());
+  expect(screen.getByText(/configured in new-backend/i)).toBeVisible();
+  expect(screen.queryByText("Not configured", { exact: true })).toBeNull();
 });
 
 it("demo gallery labels every scenario and hides unavailable controls", () => {

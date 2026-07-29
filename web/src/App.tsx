@@ -38,14 +38,23 @@ function defaultRuntime(): RuntimeConfig {
 type Page = "dashboard" | "new-run" | "run-detail" | "credentials" | "demos";
 
 function approvalFrom(events: RunEvent[]): ApprovalRequest | undefined {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    if (events[index].type !== "ApprovalRequired") continue;
-    const payload = events[index].payload;
+  const closingEvents = new Set([
+    "ApprovalGranted", "ApprovalRejected", "ReviewComplete", "RunRecovered", "RunStopped",
+    "RunSucceeded",
+  ]);
+  let approval: ApprovalRequest | undefined;
+  for (const event of [...events].sort((left, right) => left.sequence - right.sequence)) {
+    if (closingEvents.has(event.type)) {
+      approval = undefined;
+      continue;
+    }
+    if (event.type !== "ApprovalRequired") continue;
+    const payload = event.payload;
     const action = payload.action;
     if (typeof payload.digest !== "string" || !action || typeof action !== "object" ||
       Array.isArray(action) || typeof (action as Record<string, unknown>).kind !== "string") continue;
     const actionRecord = action as Record<string, unknown>;
-    return {
+    approval = {
       digest: payload.digest,
       action: {
         kind: actionRecord.kind as string,
@@ -61,6 +70,7 @@ function approvalFrom(events: RunEvent[]): ApprovalRequest | undefined {
         ? payload.risk_reason : "Server risk detail unavailable",
     };
   }
+  return approval;
 }
 
 function artifactReference(event: RunEvent) {
@@ -230,19 +240,25 @@ export function App({ runtimeConfig, apiClient }: {
   };
   const cancel = async () => {
     if (!selected) return;
+    const runId = selected.id;
+    const selectionGeneration = selectionGenerationRef.current;
     setCancelPending(true);
     setActionError("");
     try {
-      await client.cancel(selected.id);
-      setSelected(await client.getRun(selected.id));
+      await client.cancel(runId);
+      if (selectionGeneration !== selectionGenerationRef.current) return;
+      await refreshSnapshot(runId, selectionGeneration);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Cancellation failed.");
+      if (selectionGeneration === selectionGenerationRef.current) {
+        setActionError(error instanceof Error ? error.message : "Cancellation failed.");
+      }
     } finally {
-      setCancelPending(false);
+      if (selectionGeneration === selectionGenerationRef.current) setCancelPending(false);
     }
   };
 
-  const approval = runtime.capabilities.approvals ? approvalFrom(events) : undefined;
+  const approval = runtime.capabilities.approvals && selected?.state === "AWAITING_APPROVAL"
+    ? approvalFrom(events) : undefined;
   const declaredDemoRuns = new Set(runtime.capabilities.fixedRuns);
   const demoRuns = runs.filter((run) => declaredDemoRuns.has(run.id)).map((run) => run.id);
   const reconnect = () => {

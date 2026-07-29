@@ -66,27 +66,37 @@ export function Credentials({ loadStatus, onSave, onClear }: {
     event.preventDefault();
     if (!secret || operation === "saving") return;
     const submittedSecret = secret;
+    const submittedProvider = normalize(provider);
+    const submittedHost = normalize(host);
+    const generation = generationRef.current;
     setSecret("");
     setOperation("saving");
     setMessage(status?.configured ? "Updating credential…" : "Adding credential…");
-    void onSave(normalize(provider), normalize(host), submittedSecret).then(async () => {
+    void onSave(submittedProvider, submittedHost, submittedSecret).then(async () => {
+      if (generation !== generationRef.current) return;
       setMessage("Credential saved. Secret value was cleared from this form.");
       await refresh();
     }, () => {
+      if (generation !== generationRef.current) return;
       setOperation("error");
       setMessage("Credential could not be saved. Enter the secret again and retry.");
     });
   };
   const clear = async () => {
+    const clearedProvider = normalize(provider);
+    const clearedHost = normalize(host);
+    const generation = generationRef.current;
     setClearFailed(false);
     setOperation("clearing");
     setMessage("Clearing credential…");
     try {
-      await onClear(normalize(provider), normalize(host));
+      await onClear(clearedProvider, clearedHost);
+      if (generation !== generationRef.current) return;
       setStatus((current) => current ? { ...current, configured: false, backend: "" } : current);
       setOperation("idle");
       setMessage("Credential cleared. No secret value was displayed.");
     } catch {
+      if (generation !== generationRef.current) return;
       setClearFailed(true);
       setOperation("error");
       setMessage("Credential could not be cleared. The existing credential remains unchanged.");

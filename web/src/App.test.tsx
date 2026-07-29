@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -131,5 +131,73 @@ it("does not let an older selected-run request overwrite a newer selection", asy
   resolveOld(Response.json(run));
   await vi.waitFor(() =>
     expect(screen.getByRole("heading", { name: "run-2" })).toBeVisible());
+  expect(screen.queryByRole("heading", { name: "run-1" })).toBeNull();
+});
+
+it.each([
+  ["ApprovalGranted", "AWAITING_APPROVAL"],
+  ["ApprovalRejected", "AWAITING_APPROVAL"],
+  ["RunSucceeded", "AWAITING_APPROVAL"],
+  ["RunStarted", "EXECUTING"],
+])("does not reopen a closed approval after %s in state %s", async (closingType, state) => {
+  const currentRun = { ...run, state };
+  const approvalPayload = {
+    digest: "sha256:closed",
+    action: { kind: "apply_patch", args: { patch: "bounded" } },
+    affected_files: ["src/sum.ts"],
+    risk: "medium",
+    risk_reason: "Tracked source change",
+  };
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path.includes("?offset=")) return Response.json({
+      runs: [currentRun], page: { offset: 0, limit: 50, returned: 1, has_more: false },
+    });
+    if (path.endsWith("/events")) return new Response(
+      `id: 1\nevent: ApprovalRequired\ndata: ${JSON.stringify({
+        at: "2026-07-29T00:01:00Z", payload: approvalPayload,
+      })}\n\nid: 2\nevent: ${closingType}\ndata: ${JSON.stringify({
+        at: "2026-07-29T00:02:00Z", payload: { digest: "sha256:closed" },
+      })}\n\n`,
+    );
+    if (path.endsWith("/run-1")) return Response.json(currentRun);
+    throw new Error(`unexpected request ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App runtimeConfig={localRuntime} />);
+  await userEvent.click(await screen.findByRole("button", { name: "run-1" }));
+  expect(await screen.findByText("Latest sequence: 2. Reconnect resumes from this cursor.")).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Approval required" })).toBeNull();
+});
+
+it("does not let a delayed cancellation of run A overwrite selected run B", async () => {
+  let resolveCancel!: (response: Response) => void;
+  const cancelResponse = new Promise<Response>((resolve) => { resolveCancel = resolve; });
+  const run2 = { ...run, id: "run-2", state: "EXECUTING", task: "Newer selection" };
+  const cancelledRun = { ...run, state: "STOPPED" };
+  let run1Snapshots = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path.includes("?offset=")) return Response.json({
+      runs: [run, run2], page: { offset: 0, limit: 50, returned: 2, has_more: false },
+    });
+    if (path.endsWith("/run-1/cancel")) return cancelResponse;
+    if (path.endsWith("/run-1")) {
+      run1Snapshots += 1;
+      return Response.json(run1Snapshots === 1 ? run : cancelledRun);
+    }
+    if (path.endsWith("/run-2")) return Response.json(run2);
+    if (path.endsWith("/events")) return new Response("");
+    throw new Error(`unexpected request ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App runtimeConfig={localRuntime} />);
+  await userEvent.click(await screen.findByRole("button", { name: "run-1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Cancel run" }));
+  await userEvent.click(screen.getByRole("button", { name: /Dashboard/ }));
+  await userEvent.click(screen.getByRole("button", { name: "run-2" }));
+  expect(await screen.findByRole("heading", { name: "run-2" })).toBeVisible();
+  await act(async () => resolveCancel(new Response(null, { status: 204 })));
+  expect(screen.getByRole("heading", { name: "run-2" })).toBeVisible();
   expect(screen.queryByRole("heading", { name: "run-1" })).toBeNull();
 });
