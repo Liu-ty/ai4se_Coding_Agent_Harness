@@ -245,27 +245,20 @@ func TestApprovalRequiredPublishesRedactedBoundProductionRequest(t *testing.T) {
 		request.BaselineEvidence[1].Name != "baseline_diff_hash" {
 		t.Fatalf("baseline evidence = %#v", request.BaselineEvidence)
 	}
-	raw := events[len(events)-1].Payload
-	if bytes.Contains(raw, []byte(canary)) || len(raw) > 8<<10 {
-		t.Fatalf("approval event leaked a secret: %s", raw)
+	for _, event := range events {
+		if bytes.Contains(event.Payload, []byte(canary)) {
+			t.Fatalf("raw event %q leaked a secret: %s", event.Type, event.Payload)
+		}
+		if event.Type == "ApprovalRequired" && len(event.Payload) > 8<<10 {
+			t.Fatalf("approval event is unbounded: %d bytes", len(event.Payload))
+		}
 	}
+	assertSQLiteFilesDoNotContain(t, directory, canary, true)
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	closed = true
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		persisted, err := os.ReadFile(filepath.Join(directory, entry.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if bytes.Contains(persisted, []byte(canary)) {
-			t.Fatalf("SQLite file %q contains approval canary", entry.Name())
-		}
-	}
+	assertSQLiteFilesDoNotContain(t, directory, canary, false)
 }
 
 func TestApprovedValidationFailureFeedsBackAndRedecides(t *testing.T) {
@@ -618,6 +611,37 @@ func pass(stage string) agent.ValidationResult {
 	return agent.ValidationResult{StageID: stage, Passed: true, Observation: domain.Observation{Code: executor.CodeExit, ExitCode: intp(0)}}
 }
 func intp(v int) *int { return &v }
+
+func assertSQLiteFilesDoNotContain(
+	t *testing.T,
+	directory string,
+	canary string,
+	databaseOpen bool,
+) {
+	t.Helper()
+	phase := "after close"
+	if databaseOpen {
+		phase = "while open"
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || (entry.Name() != "runs.db" &&
+			!strings.HasPrefix(entry.Name(), "runs.db-")) {
+			continue
+		}
+		persisted, err := os.ReadFile(filepath.Join(directory, entry.Name()))
+		if err != nil {
+			t.Fatalf("read SQLite file %q %s: %v", entry.Name(), phase, err)
+		}
+		if bytes.Contains(persisted, []byte(canary)) {
+			t.Fatalf("SQLite file %q contains approval canary %s", entry.Name(), phase)
+		}
+	}
+}
+
 func assertEvents(t *testing.T, mem *store.MemoryStore, id domain.RunID, want ...string) {
 	t.Helper()
 	events, err := mem.ListEvents(context.Background(), id, 1)
