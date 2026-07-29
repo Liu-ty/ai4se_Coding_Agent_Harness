@@ -36,6 +36,7 @@ type Application interface {
 }
 
 type Store interface {
+	ListRuns(context.Context) ([]domain.Run, error)
 	ListEvents(context.Context, domain.RunID, uint64) ([]domain.RunEvent, error)
 	GetArtifact(context.Context, domain.RunID, string) (domain.Artifact, error)
 }
@@ -49,6 +50,7 @@ type CredentialService interface {
 
 type Capabilities struct {
 	CreateRuns       bool
+	ListRuns         bool
 	ReadRuns         bool
 	CancelRuns       bool
 	Approvals        bool
@@ -61,7 +63,7 @@ type Capabilities struct {
 
 func LocalCapabilities() Capabilities {
 	return Capabilities{
-		CreateRuns: true, ReadRuns: true, CancelRuns: true, Approvals: true,
+		CreateRuns: true, ListRuns: true, ReadRuns: true, CancelRuns: true, Approvals: true,
 		Events: true, Artifacts: true, ConfigValidation: true, Credentials: true,
 	}
 }
@@ -73,7 +75,7 @@ func DemoCapabilities(fixedRuns ...domain.RunID) Capabilities {
 			fixed[runID] = struct{}{}
 		}
 	}
-	return Capabilities{ReadRuns: true, Events: true, FixedRuns: fixed}
+	return Capabilities{ListRuns: true, ReadRuns: true, Events: true, FixedRuns: fixed}
 }
 
 type Options struct {
@@ -87,6 +89,7 @@ type Options struct {
 	PollInterval      time.Duration
 	Secrets           []string
 	Random            io.Reader
+	AppShell          http.Handler
 }
 
 type Router struct {
@@ -104,6 +107,7 @@ type Router struct {
 	redactorMu       sync.RWMutex
 	redactor         feedback.Redactor
 	redactionSecrets []string
+	appShell         http.Handler
 
 	bootstrapToken string
 	sessionToken   string
@@ -184,6 +188,7 @@ func newRouter(options Options, local bool) (*Router, error) {
 		heartbeat: heartbeat, poll: poll, random: random,
 		redactor:         feedback.NewRedactor(options.Secrets),
 		redactionSecrets: append([]string(nil), options.Secrets...),
+		appShell:         options.AppShell,
 	}, nil
 }
 
@@ -223,7 +228,7 @@ func (r *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		r.writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
-	if r.local && request.URL.Path == "/" {
+	if r.local && request.URL.Path == "/" && request.URL.Query().Has("bootstrap") {
 		r.handleBootstrap(writer, request, requestID)
 		return
 	}
@@ -248,6 +253,18 @@ func (r *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			}
 		}
 	}
+	if r.local && request.URL.Path == "/" {
+		if request.Method != http.MethodGet {
+			r.writeMethodNotAllowed(writer, requestID)
+			return
+		}
+		if r.appShell == nil {
+			r.writeNotFound(writer, requestID)
+			return
+		}
+		r.appShell.ServeHTTP(writer, request)
+		return
+	}
 	r.dispatch(writer, request, requestID)
 }
 
@@ -255,15 +272,22 @@ func (r *Router) dispatch(writer http.ResponseWriter, request *http.Request, req
 	parts := splitPath(request.URL.Path)
 	switch {
 	case len(parts) == 3 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "runs":
-		if !r.capabilities.CreateRuns {
-			r.writeNotFound(writer, requestID)
-			return
-		}
-		if request.Method != http.MethodPost {
+		switch request.Method {
+		case http.MethodGet:
+			if !r.capabilities.ListRuns {
+				r.writeNotFound(writer, requestID)
+				return
+			}
+			r.listRuns(writer, request, requestID)
+		case http.MethodPost:
+			if !r.capabilities.CreateRuns {
+				r.writeNotFound(writer, requestID)
+				return
+			}
+			r.createRun(writer, request, requestID)
+		default:
 			r.writeMethodNotAllowed(writer, requestID)
-			return
 		}
-		r.createRun(writer, request, requestID)
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" &&
 		parts[2] == "runs":
 		runID := domain.RunID(parts[3])

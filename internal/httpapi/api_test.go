@@ -117,6 +117,45 @@ func TestLocalBootstrapIsOneTimeAndSetsStrictCookie(t *testing.T) {
 	assertAPIError(t, secondRR, http.StatusUnauthorized, "INVALID_BOOTSTRAP")
 }
 
+func TestBootstrapRedirectReachesAuthenticatedAppShell(t *testing.T) {
+	api, _, _ := newLocalAPI(t)
+	token := api.BootstrapToken()
+
+	unauthenticated := httptest.NewRequest(http.MethodGet, "/", nil)
+	unauthenticated.Host = localHost
+	unauthenticatedRR := httptest.NewRecorder()
+	api.ServeHTTP(unauthenticatedRR, unauthenticated)
+	assertAPIError(t, unauthenticatedRR, http.StatusForbidden, "SESSION_REQUIRED")
+
+	exchange := httptest.NewRequest(http.MethodGet, "/?bootstrap="+token, nil)
+	exchange.Host = localHost
+	exchangeRR := httptest.NewRecorder()
+	api.ServeHTTP(exchangeRR, exchange)
+	if exchangeRR.Code != http.StatusSeeOther {
+		t.Fatalf("bootstrap status = %d, body = %s", exchangeRR.Code, exchangeRR.Body.String())
+	}
+	cookies := exchangeRR.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("bootstrap cookies = %#v", cookies)
+	}
+
+	clean := httptest.NewRequest(http.MethodGet, exchangeRR.Header().Get("Location"), nil)
+	clean.Host = localHost
+	clean.AddCookie(cookies[0])
+	cleanRR := httptest.NewRecorder()
+	api.ServeHTTP(cleanRR, clean)
+	if cleanRR.Code != http.StatusOK || cleanRR.Body.String() != "app-shell" {
+		t.Fatalf("clean root = %d, body = %q", cleanRR.Code, cleanRR.Body.String())
+	}
+
+	reuse := httptest.NewRequest(http.MethodGet, "/?bootstrap="+token, nil)
+	reuse.Host = localHost
+	reuse.AddCookie(cookies[0])
+	reuseRR := httptest.NewRecorder()
+	api.ServeHTTP(reuseRR, reuse)
+	assertAPIError(t, reuseRR, http.StatusUnauthorized, "INVALID_BOOTSTRAP")
+}
+
 func TestLocalSecurityRejectsInvalidHostOriginSessionAndCSRF(t *testing.T) {
 	api, _, _ := newLocalAPI(t)
 	cookie := bootstrap(t, api)
@@ -263,6 +302,82 @@ func TestRoutesUseVersionedJSONContracts(t *testing.T) {
 		application.rejected != "run-1:digest-b" || !application.terminate {
 		t.Fatalf("mutation calls were not routed: %#v", application)
 	}
+}
+
+func TestListRunsUsesBoundedStablePaginationAndRedactsCanaries(t *testing.T) {
+	api, _, st := newLocalAPI(t)
+	cookie := bootstrap(t, api)
+	for _, run := range []domain.Run{
+		{ID: "run-a", State: domain.StateCreated, Task: "first"},
+		{ID: "run-b", State: domain.StateDeciding, Task: canarySecret},
+		{ID: "run-c", State: domain.StateSucceeded, Task: "third"},
+	} {
+		if err := st.CreateRun(context.Background(), run); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	request := authorizedRequest(
+		api, cookie, http.MethodGet, "/api/v1/runs?offset=1&limit=1", "",
+	)
+	rr := httptest.NewRecorder()
+	api.ServeHTTP(rr, request)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var page struct {
+		Runs []struct {
+			ID   domain.RunID `json:"id"`
+			Task string       `json:"task"`
+		} `json:"runs"`
+		Page struct {
+			Offset   int  `json:"offset"`
+			Limit    int  `json:"limit"`
+			Returned int  `json:"returned"`
+			HasMore  bool `json:"has_more"`
+		} `json:"page"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Runs) != 1 || page.Runs[0].ID != "run-b" ||
+		page.Runs[0].Task != "[REDACTED]" ||
+		page.Page.Offset != 1 || page.Page.Limit != 1 ||
+		page.Page.Returned != 1 || !page.Page.HasMore {
+		t.Fatalf("unexpected run page: %#v", page)
+	}
+	if strings.Contains(rr.Body.String(), canarySecret) {
+		t.Fatalf("list leaked canary: %s", rr.Body.String())
+	}
+}
+
+func TestListRunsRejectsInvalidPaginationAndRequiresSession(t *testing.T) {
+	api, _, _ := newLocalAPI(t)
+	cookie := bootstrap(t, api)
+	for _, query := range []string{
+		"limit=0", "limit=101", "limit=bad", "offset=-1",
+		"offset=bad", "offset=1000001", "limit=1&limit=2", "unknown=1",
+	} {
+		t.Run(query, func(t *testing.T) {
+			request := authorizedRequest(
+				api, cookie, http.MethodGet, "/api/v1/runs?"+query, "",
+			)
+			rr := httptest.NewRecorder()
+			api.ServeHTTP(rr, request)
+			assertAPIError(t, rr, http.StatusBadRequest, "INVALID_PAGINATION")
+		})
+	}
+
+	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v1/runs", nil)
+	unauthenticated.Host = localHost
+	unauthenticatedRR := httptest.NewRecorder()
+	api.ServeHTTP(unauthenticatedRR, unauthenticated)
+	assertAPIError(t, unauthenticatedRR, http.StatusForbidden, "SESSION_REQUIRED")
+
+	wrongMethod := authorizedRequest(api, cookie, http.MethodPut, "/api/v1/runs", `{}`)
+	wrongMethodRR := httptest.NewRecorder()
+	api.ServeHTTP(wrongMethodRR, wrongMethod)
+	assertAPIError(t, wrongMethodRR, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
 }
 
 func TestLocalConstructorRequiresIPv4LoopbackBinding(t *testing.T) {
@@ -455,6 +570,11 @@ func TestDemoCapabilitiesPruneLocalAndNonFixedRoutes(t *testing.T) {
 	if err := st.CreateRun(context.Background(), domain.Run{ID: "fixed"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.CreateRun(context.Background(), domain.Run{
+		ID: "hidden", Task: canarySecret,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	overbroad := httpapi.LocalCapabilities()
 	overbroad.FixedRuns = map[domain.RunID]struct{}{"fixed": {}}
 	api, err := httpapi.NewDemo(httpapi.Options{
@@ -490,6 +610,25 @@ func TestDemoCapabilitiesPruneLocalAndNonFixedRoutes(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("fixed demo run status = %d, body = %s", rr.Code, rr.Body.String())
 	}
+
+	listRR := httptest.NewRecorder()
+	api.ServeHTTP(listRR, httptest.NewRequest(http.MethodGet, "/api/v1/runs?limit=10", nil))
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("demo list status = %d, body = %s", listRR.Code, listRR.Body.String())
+	}
+	var listed struct {
+		Runs []struct {
+			ID domain.RunID `json:"id"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(listRR.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Runs) != 1 || listed.Runs[0].ID != "fixed" ||
+		strings.Contains(listRR.Body.String(), "hidden") ||
+		strings.Contains(listRR.Body.String(), canarySecret) {
+		t.Fatalf("demo list escaped fixed capabilities: %s", listRR.Body.String())
+	}
 }
 
 func TestHealthzIsPublicAndCORSIsNeverEnabled(t *testing.T) {
@@ -518,10 +657,13 @@ func newLocalAPIWithCredentials(
 	application := &fakeApplication{}
 	st := store.NewMemory()
 	api, err := httpapi.NewLocal(httpapi.Options{
-		Application:       application,
-		Store:             st,
-		Credentials:       credentialAPI,
-		Capabilities:      httpapi.LocalCapabilities(),
+		Application:  application,
+		Store:        st,
+		Credentials:  credentialAPI,
+		Capabilities: httpapi.LocalCapabilities(),
+		AppShell: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			_, _ = writer.Write([]byte("app-shell"))
+		}),
 		Host:              localHost,
 		MaxBodyBytes:      1024,
 		HeartbeatInterval: 5 * time.Millisecond,

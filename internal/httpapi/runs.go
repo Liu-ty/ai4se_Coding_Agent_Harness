@@ -5,14 +5,23 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/app"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 )
 
 var (
-	errInvalidJSON  = errors.New("request body is not valid JSON")
-	errBodyTooLarge = errors.New("request body exceeds the size limit")
+	errInvalidJSON       = errors.New("request body is not valid JSON")
+	errBodyTooLarge      = errors.New("request body exceeds the size limit")
+	errInvalidPagination = errors.New("pagination is invalid")
+)
+
+const (
+	defaultRunPageLimit = 50
+	maxRunPageLimit     = 100
+	maxRunPageOffset    = 1_000_000
 )
 
 type runResponse struct {
@@ -24,6 +33,18 @@ type runResponse struct {
 	CurrentStage string                   `json:"current_stage"`
 	CreatedAt    any                      `json:"created_at"`
 	UpdatedAt    any                      `json:"updated_at"`
+}
+
+type runPageResponse struct {
+	Runs []runResponse      `json:"runs"`
+	Page paginationResponse `json:"page"`
+}
+
+type paginationResponse struct {
+	Offset   int  `json:"offset"`
+	Limit    int  `json:"limit"`
+	Returned int  `json:"returned"`
+	HasMore  bool `json:"has_more"`
 }
 
 func newRunResponse(run domain.Run) runResponse {
@@ -59,6 +80,72 @@ func (r *Router) getRun(
 		return
 	}
 	r.writeJSON(writer, http.StatusOK, newRunResponse(run))
+}
+
+func (r *Router) listRuns(
+	writer http.ResponseWriter,
+	request *http.Request,
+	requestID string,
+) {
+	offset, limit, err := parseRunPagination(request.URL.Query())
+	if err != nil {
+		r.writeError(
+			writer, http.StatusBadRequest, "INVALID_PAGINATION",
+			"run pagination is invalid", requestID,
+		)
+		return
+	}
+	stored, err := r.store.ListRuns(request.Context())
+	if err != nil {
+		r.mapError(writer, err, requestID)
+		return
+	}
+	allowed := make([]runResponse, 0, len(stored))
+	for _, run := range stored {
+		if r.allowedRun(run.ID) {
+			allowed = append(allowed, newRunResponse(run))
+		}
+	}
+	start := offset
+	if start > len(allowed) {
+		start = len(allowed)
+	}
+	end := start + limit
+	if end > len(allowed) {
+		end = len(allowed)
+	}
+	page := allowed[start:end]
+	r.writeJSON(writer, http.StatusOK, runPageResponse{
+		Runs: page,
+		Page: paginationResponse{
+			Offset: offset, Limit: limit, Returned: len(page), HasMore: end < len(allowed),
+		},
+	})
+}
+
+func parseRunPagination(values url.Values) (int, int, error) {
+	for key, entries := range values {
+		if (key != "offset" && key != "limit") || len(entries) != 1 {
+			return 0, 0, errInvalidPagination
+		}
+	}
+	offset := 0
+	if rawOffset, present := values["offset"]; present {
+		parsed, err := strconv.Atoi(rawOffset[0])
+		if err != nil || parsed < 0 || parsed > maxRunPageOffset {
+			return 0, 0, errInvalidPagination
+		}
+		offset = parsed
+	}
+	limit := defaultRunPageLimit
+	if rawLimit, present := values["limit"]; present {
+		parsed, err := strconv.Atoi(rawLimit[0])
+		if err != nil || parsed < 1 || parsed > maxRunPageLimit {
+			return 0, 0, errInvalidPagination
+		}
+		limit = parsed
+	}
+	return offset, limit, nil
 }
 
 func (r *Router) cancelRun(
