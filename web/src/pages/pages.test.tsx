@@ -4,16 +4,36 @@ import { expect, it, vi } from "vitest";
 import { Credentials } from "./Credentials";
 import { DemoGallery } from "./DemoGallery";
 import { NewRun } from "./NewRun";
+import type { PreflightReport } from "../api/types";
 
-it("clears credential secret state immediately after submit starts", async () => {
+it("loads non-secret credential status, distinguishes update, and clears secret immediately", async () => {
   let resolveSubmit!: () => void;
   const submit = vi.fn(() => new Promise<void>((resolve) => { resolveSubmit = resolve; }));
-  render(<Credentials onSave={submit} />);
+  const loadStatus = vi.fn().mockResolvedValue({
+    ref: { provider: "openai", host: "api.openai.com" },
+    configured: true, backend: "keyring", updated_at: "2026-07-29T00:00:00Z",
+  });
+  render(<Credentials loadStatus={loadStatus} onSave={submit} onClear={vi.fn()} />);
+  expect(await screen.findByText(/configured in keyring/i)).toBeVisible();
   const input = screen.getByLabelText("Secret");
   await userEvent.type(input, "canary-value");
-  await userEvent.click(screen.getByRole("button", { name: "Save credential" }));
+  await userEvent.click(screen.getByRole("button", { name: "Update credential" }));
   expect(input).toHaveValue("");
+  expect(screen.queryByText("canary-value")).toBeNull();
   resolveSubmit();
+});
+
+it("credential clear exposes pending failure and recovery", async () => {
+  const onClear = vi.fn().mockRejectedValueOnce(new Error("locked")).mockResolvedValueOnce(undefined);
+  render(<Credentials loadStatus={vi.fn().mockResolvedValue({
+    ref: { provider: "openai", host: "api.openai.com" }, configured: true,
+    backend: "keyring", updated_at: "2026-07-29T00:00:00Z",
+  })} onSave={vi.fn()} onClear={onClear} />);
+  const clear = await screen.findByRole("button", { name: "Clear credential" });
+  await userEvent.click(clear);
+  expect(await screen.findByText(/could not be cleared/i)).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Retry clear" }));
+  expect(await screen.findByText(/credential cleared/i)).toBeVisible();
 });
 
 it("demo gallery labels every scenario and hides unavailable controls", () => {
@@ -25,8 +45,13 @@ it("demo gallery labels every scenario and hides unavailable controls", () => {
 
 it("supports a keyboard-only supervised run draft", async () => {
   const onCreate = vi.fn();
+  const report: PreflightReport = {
+    ok: true, findings: [{ code: "REPOSITORY_REACHABLE", severity: "info", message: "Repository reachable" }],
+    repo_root: "C:\\repo", baseline_commit: "abc", baseline_diff_hash: "def",
+  };
+  const onPreflight = vi.fn().mockResolvedValue(report);
   const user = userEvent.setup();
-  render(<NewRun onCreate={onCreate} />);
+  render(<NewRun onPreflight={onPreflight} onCreate={onCreate} />);
   await user.tab();
   await user.keyboard("C:\\repo");
   await user.tab();
@@ -37,7 +62,17 @@ it("supports a keyboard-only supervised run draft", async () => {
   await user.keyboard("mock-v1");
   await user.tab();
   await user.tab();
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Create supervised draft" }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Validate preflight" }));
+  await user.keyboard("{Enter}");
+  expect(await screen.findByText("Repository reachable")).toBeVisible();
+  const create = screen.getByRole("button", { name: "Create run" });
+  expect(create).toBeEnabled();
+  create.focus();
   await user.keyboard("{Enter}");
   expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ profile: "supervised" }));
+});
+
+it("blocks creation until the current draft passes preflight", async () => {
+  render(<NewRun onPreflight={vi.fn()} onCreate={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "Create run" })).toBeDisabled();
 });

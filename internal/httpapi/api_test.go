@@ -488,6 +488,10 @@ func TestSSEReplaysSequenceAndTypeAfterLastEventIDAndRedactsCanary(t *testing.T)
 	if strings.Contains(body, canarySecret) || !strings.Contains(body, "[REDACTED]") {
 		t.Fatalf("event was not redacted:\n%s", body)
 	}
+	if !strings.Contains(body, `"at":"`) ||
+		!strings.Contains(body, `"payload":{"value":"two"}`) {
+		t.Fatalf("SSE data omitted immutable server timestamp or payload envelope:\n%s", body)
+	}
 }
 
 func TestSSEHeartbeatAndMalformedLastEventID(t *testing.T) {

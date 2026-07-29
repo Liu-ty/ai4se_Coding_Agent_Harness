@@ -11,6 +11,16 @@ export interface Run {
   updated_at: string;
 }
 
+export interface RunPage {
+  runs: Run[];
+  page: {
+    offset: number;
+    limit: number;
+    returned: number;
+    has_more: boolean;
+  };
+}
+
 export interface CreateRunRequest {
   repo_root: string;
   task: string;

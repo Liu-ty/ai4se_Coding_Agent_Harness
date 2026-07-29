@@ -4,6 +4,8 @@ import { expect, it, vi } from "vitest";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { DiffViewer } from "./DiffViewer";
 import { Timeline } from "./Timeline";
+import { RunDetail } from "../pages/RunDetail";
+import { Dashboard } from "../pages/Dashboard";
 
 const fixtureEvents = [{
   sequence: 8,
@@ -43,4 +45,47 @@ it("renders a read-only keyboard-focusable diff", () => {
   render(<DiffViewer content={"- return 1\n+ return 2"} truncated={false} />);
   expect(screen.getByRole("region", { name: "Read-only diff" })).toHaveAttribute("tabindex", "0");
   expect(screen.queryByRole("textbox")).toBeNull();
+});
+
+it("renders server timestamps, unavailable timestamps, truncation, and SIMULATED on each demo row", () => {
+  render(<Timeline simulated events={[
+    { sequence: 1, type: "PolicyEvaluated", at: "2026-07-29T01:02:03Z",
+      payload: { summary: "Denied", output_truncated: true } },
+    { sequence: 2, type: "FeedbackProduced", payload: { summary: "Retry" } },
+  ]} />);
+  expect(screen.getByText(/2026-07-29 01:02:03/i)).toBeVisible();
+  expect(screen.getByText("Timestamp unavailable")).toBeVisible();
+  expect(screen.getByText(/server truncated this event output/i)).toBeVisible();
+  expect(screen.getAllByText("SIMULATED")).toHaveLength(2);
+});
+
+it("derives budgets and terminal reason only from server events", () => {
+  const run = {
+    id: "run-1", state: "SUCCEEDED", profile: "supervised" as const, task: "Repair",
+    repo_root: "C:\\repo", current_stage: "final", created_at: "", updated_at: "",
+  };
+  const { rerender } = render(<RunDetail run={run} events={[{
+    sequence: 4, type: "BudgetUpdated", payload: {
+      budgets: { decisions: { used: 3, limit: 30 }, mutations: { used: 2, limit: 5 } },
+      reason: "ALL_REQUIRED_CHECKS_PASSED",
+    },
+  }]} connection="connected" />);
+  expect(screen.getByText("Decisions 3 / 30")).toBeVisible();
+  expect(screen.getAllByText("Mutations 2 / 5")).toHaveLength(2);
+  expect(screen.getByText("ALL_REQUIRED_CHECKS_PASSED")).toBeVisible();
+  rerender(<RunDetail run={run} events={[]} connection="connected" />);
+  expect(screen.getByText("Budget data unavailable")).toBeVisible();
+  expect(screen.getByText("Terminal reason unavailable")).toBeVisible();
+});
+
+it("dashboard renders four server-derived KPIs, visualization, activity, and runs", () => {
+  const runs = [{
+    id: "run-1", state: "SUCCEEDED", profile: "supervised" as const, task: "Repair",
+    repo_root: "C:\\repo", current_stage: "final", created_at: "", updated_at: "",
+  }];
+  render(<Dashboard runs={runs} state="populated" onOpen={vi.fn()} onRetry={vi.fn()} />);
+  expect(screen.getAllByTestId("kpi-card")).toHaveLength(4);
+  expect(screen.getByRole("img", { name: /run state distribution/i })).toBeVisible();
+  expect(screen.getByRole("region", { name: "Live activity" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "run-1" })).toBeVisible();
 });

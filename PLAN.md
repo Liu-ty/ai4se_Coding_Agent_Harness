@@ -1260,7 +1260,7 @@ git commit -m "feat: orchestrate safe local harness runs"
 
 ---
 
-### Task 15: Versioned HTTP API, SSE, and Local Web Security — complete (this commit)
+### Task 15: Versioned HTTP API, SSE, and Local Web Security — complete (10f45b4)
 
 **Files:**
 - Create: `internal/httpapi/router.go`
@@ -1353,7 +1353,7 @@ git commit -m "feat: expose secure local run API and events"
 
 ---
 
-### Task 16: Open Design React WebUI — complete (this commit)
+### Task 16: Open Design React WebUI — complete (8e66b7c)
 
 **Files:**
 - Create: `DESIGN.md`

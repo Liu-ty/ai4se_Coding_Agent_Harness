@@ -5,13 +5,14 @@ export default defineConfig({
   timeout: 30_000,
   fullyParallel: false,
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: "http://127.0.0.1:4174",
     channel: "chrome",
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
+    command: "go run ./e2e/server",
+    url: "http://127.0.0.1:4174/healthz",
     reuseExistingServer: false,
+    timeout: 60_000,
   },
 });

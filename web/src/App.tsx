@@ -1,8 +1,15 @@
-import { useMemo, useState } from "react";
-import { ApiClient } from "./api/client";
-import type { CreateRunRequest, Run, RunEvent, RuntimeConfig } from "./api/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiClient, RunEventStream } from "./api/client";
+import type {
+  ConnectionState,
+  CreateRunRequest,
+  Run,
+  RunEvent,
+  RuntimeConfig,
+} from "./api/types";
+import type { ApprovalRequest } from "./components/ApprovalPanel";
 import { Credentials } from "./pages/Credentials";
-import { Dashboard } from "./pages/Dashboard";
+import { Dashboard, type DashboardState } from "./pages/Dashboard";
 import { DemoGallery } from "./pages/DemoGallery";
 import { NewRun } from "./pages/NewRun";
 import { RunDetail } from "./pages/RunDetail";
@@ -15,61 +22,172 @@ const localCapabilities = {
   createRuns: true, cancelRuns: true, approvals: true, artifacts: true,
   configValidation: true, credentials: true, demo: false, fixedRuns: [],
 };
-const runtime = window.__AI4SE_RUNTIME__ ?? {
-  csrfToken: undefined,
-  capabilities: location.search.includes("demo=1")
-    ? { ...localCapabilities, createRuns: false, cancelRuns: false, approvals: false,
-      artifacts: false, configValidation: false, credentials: false, demo: true,
-      fixedRuns: ["feedback-loop"] }
-    : localCapabilities,
-};
+
+function defaultRuntime(): RuntimeConfig {
+  return window.__AI4SE_RUNTIME__ ?? {
+    csrfToken: undefined,
+    capabilities: location.search.includes("fixture=demo")
+      ? { ...localCapabilities, createRuns: false, cancelRuns: false, approvals: false,
+        artifacts: false, configValidation: false, credentials: false, demo: true,
+        fixedRuns: ["feedback-loop"] }
+      : localCapabilities,
+  };
+}
 
 type Page = "dashboard" | "new-run" | "run-detail" | "credentials" | "demos";
 
-const now = "2026-07-29T08:00:00Z";
-const demoRun: Run = {
-  id: "feedback-loop", state: "SUCCEEDED", profile: "workspace-auto",
-  task: "Repair the deterministic addition defect", repo_root: "SIMULATED/workspace",
-  current_stage: "final", created_at: now, updated_at: now,
-};
-const demoEvents: RunEvent[] = [
-  { sequence: 1, type: "PolicyEvaluated", payload: {
-    category: "POLICY_DENIED", summary: "Guardrail intercepted a protected-path patch.",
-  }},
-  { sequence: 2, type: "ValidationFailed", payload: {
-    category: "TEST_FAILURE", summary: "Injected failure: expected 2, received 1.",
-    evidence: [{ source: "stderr", message: "REDACTED", path: "sum.test.ts", line: 12 }],
-    budgets: { mutations: { used: 1, limit: 5 } },
-  }},
-  { sequence: 3, type: "DecisionChanged", payload: {
-    category: "ACTION_CHANGED", summary: "Feedback changed the second patch to return a + b.",
-  }},
-  { sequence: 4, type: "RunSucceeded", payload: {
-    category: "SUCCEEDED", summary: "Every required final validation stage passed.",
-  }},
-];
+function approvalFrom(events: RunEvent[]): ApprovalRequest | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const payload = events[index].payload;
+    if (typeof payload.digest !== "string") continue;
+    return {
+      digest: payload.digest,
+      action: typeof payload.action === "string" ? payload.action : "Unknown action",
+      files: Array.isArray(payload.files) ? payload.files.filter((item): item is string =>
+        typeof item === "string") : [],
+      risk: typeof payload.risk === "string" ? payload.risk : "Server risk detail unavailable",
+    };
+  }
+}
 
-export function App() {
-  const client = useMemo(() => new ApiClient({ csrfToken: runtime.csrfToken }), []);
+function artifactReference(event: RunEvent) {
+  for (const key of ["diff_artifact_id", "artifact_id"]) {
+    if (typeof event.payload[key] === "string") return event.payload[key] as string;
+  }
+}
+
+export function App({ runtimeConfig, apiClient }: {
+  runtimeConfig?: RuntimeConfig;
+  apiClient?: ApiClient;
+} = {}) {
+  const runtime = useMemo(() => runtimeConfig ?? defaultRuntime(), [runtimeConfig]);
+  const client = useMemo(() => apiClient ?? new ApiClient({ csrfToken: runtime.csrfToken }),
+    [apiClient, runtime.csrfToken]);
   const [page, setPage] = useState<Page>(runtime.capabilities.demo ? "demos" : "dashboard");
   const [runs, setRuns] = useState<Run[]>([]);
-  const [selected, setSelected] = useState<Run | undefined>();
-  const [approval, setApproval] = useState(false);
+  const [dashboardState, setDashboardState] = useState<DashboardState>("loading");
+  const [dashboardError, setDashboardError] = useState("");
+  const [selected, setSelected] = useState<Run>();
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [events, setEvents] = useState<RunEvent[]>([]);
+  const [connection, setConnection] = useState<ConnectionState>("disconnected");
+  const [diff, setDiff] = useState<{ content: string; truncated: boolean }>();
+  const [actionError, setActionError] = useState("");
+  const [cancelPending, setCancelPending] = useState(false);
+  const streamRef = useRef<RunEventStream | undefined>(undefined);
 
-  const navigate = (next: Page) => { setPage(next); requestAnimationFrame(() =>
-    document.querySelector<HTMLElement>("#main-content")?.focus()); };
-  const createDraft = async (request: CreateRunRequest) => {
-    const draft: Run = {
-      id: "draft-supervised", state: "AWAITING_APPROVAL", profile: request.profile,
-      task: request.task, repo_root: request.repo_root, current_stage: "preflight",
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-    };
-    setRuns((value) => [draft, ...value]);
-    setSelected(draft);
-    setApproval(request.profile === "supervised");
+  const navigate = useCallback((next: Page) => {
+    if (next !== "run-detail") {
+      streamRef.current?.stop();
+      streamRef.current = undefined;
+    }
+    setPage(next);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>("#main-content")?.focus());
+  }, []);
+
+  const loadRuns = useCallback(async () => {
+    setDashboardState("loading");
+    setDashboardError("");
+    const delayed = window.setTimeout(() => setDashboardState("delayed"), 15_000);
+    try {
+      const result = await client.listRuns(0, 50);
+      setRuns(result.runs);
+      setDashboardState(result.runs.length ? "populated" : "empty");
+    } catch (error) {
+      setDashboardState("error");
+      setDashboardError(error instanceof Error ? error.message : "Run page request failed.");
+    } finally {
+      window.clearTimeout(delayed);
+    }
+  }, [client]);
+
+  useEffect(() => { void loadRuns(); }, [loadRuns]);
+  useEffect(() => () => streamRef.current?.stop(), []);
+
+  const loadArtifact = useCallback(async (runId: string, artifactId: string) => {
+    if (!runtime.capabilities.artifacts) return;
+    try {
+      const artifact = await client.artifact(runId, artifactId);
+      if (artifact.kind.toLowerCase().includes("diff")) {
+        setDiff({ content: artifact.content, truncated: artifact.truncated });
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Artifact could not be loaded.");
+    }
+  }, [client, runtime.capabilities.artifacts]);
+
+  const openRun = useCallback(async (runId: string) => {
+    streamRef.current?.stop();
+    setDetailLoading(true);
+    setSelected(undefined);
+    setEvents([]);
+    setDiff(undefined);
+    setActionError("");
     navigate("run-detail");
+    try {
+      const run = await client.getRun(runId);
+      setSelected(run);
+      const seenArtifacts = new Set<string>();
+      const stream = new RunEventStream({
+        onEvent: (event) => {
+          setEvents((current) => current.some((item) => item.sequence === event.sequence)
+            ? current : [...current, event].sort((left, right) => left.sequence - right.sequence));
+          if (runtime.capabilities.demo && typeof event.payload.diff === "string") {
+            setDiff({
+              content: event.payload.diff,
+              truncated: event.payload.truncated === true,
+            });
+          }
+          const artifactId = artifactReference(event);
+          if (artifactId && !seenArtifacts.has(artifactId)) {
+            seenArtifacts.add(artifactId);
+            void loadArtifact(runId, artifactId);
+          }
+        },
+        onState: setConnection,
+      });
+      streamRef.current = stream;
+      void stream.run(`/api/v1/runs/${encodeURIComponent(runId)}/events`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Run could not be loaded.");
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [client, loadArtifact, navigate]);
+
+  const createRun = async (request: CreateRunRequest) => {
+    const run = await client.createRun(request);
+    await loadRuns();
+    await openRun(run.id);
   };
-  const openDemo = () => { setSelected(demoRun); setApproval(false); navigate("run-detail"); };
+  const decide = async (decision: "approve" | "reject", digest: string) => {
+    if (!selected) return;
+    setActionError("");
+    try {
+      if (decision === "approve") await client.approve(selected.id, digest);
+      else await client.reject(selected.id, digest, false);
+      setEvents((current) => current.filter((event) => event.payload.digest !== digest));
+      setSelected(await client.getRun(selected.id));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Approval decision failed.");
+    }
+  };
+  const cancel = async () => {
+    if (!selected) return;
+    setCancelPending(true);
+    setActionError("");
+    try {
+      await client.cancel(selected.id);
+      setSelected(await client.getRun(selected.id));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Cancellation failed.");
+    } finally {
+      setCancelPending(false);
+    }
+  };
+
+  const approval = runtime.capabilities.approvals ? approvalFrom(events) : undefined;
+  const demoRuns = runs.map((run) => run.id);
 
   return <div className="shell">
     <aside className="sidebar"><a className="brand" href="#" onClick={(event) => {
@@ -84,30 +202,33 @@ export function App() {
       <small>API v1 · bounded local interface</small>
     </aside>
     <div className="workspace"><header className="topbar">
-      <span>{runtime.capabilities.demo ? "SIMULATED" : "Local session"}</span>
+      <span>{runtime.capabilities.demo ? "SIMULATED" : "Authenticated local session"}</span>
       <span>Fixed light theme</span>
     </header>
     <main id="main-content" tabIndex={-1}>
-      {page === "dashboard" && <Dashboard runs={runs} onOpen={(id) => {
-        setSelected(runs.find((run) => run.id === id)); navigate("run-detail");
-      }} />}
-      {page === "new-run" && <NewRun onCreate={createDraft} />}
-      {page === "credentials" && <Credentials onSave={(provider, host, secret) =>
-        client.saveCredential(provider, host, secret)} />}
-      {page === "demos" && <DemoGallery fixedRuns={runtime.capabilities.fixedRuns.length
-        ? runtime.capabilities.fixedRuns : ["feedback-loop"]} onOpen={openDemo} />}
-      {page === "run-detail" && selected && <RunDetail run={selected}
-        simulated={selected.id === demoRun.id}
-        events={selected.id === demoRun.id ? demoEvents : []}
-        diff={selected.id === demoRun.id ? {
-          content: "--- a/sum.ts\n+++ b/sum.ts\n- return 1\n+ return a + b",
-          truncated: false,
-        } : undefined}
-        approval={approval ? {
-          digest: "sha256:draft-supervised", action: "apply_patch",
-          files: ["src/sum.ts"], risk: "Modifies one tracked source file",
-        } : undefined}
-        onDecision={() => setApproval(false)} />}
+      {page === "dashboard" && <Dashboard runs={runs} state={dashboardState}
+        error={dashboardError} onRetry={() => void loadRuns()} onOpen={(id) => void openRun(id)} />}
+      {page === "new-run" && <NewRun onPreflight={(request) => client.preflight(request)}
+        onCreate={createRun} />}
+      {page === "credentials" && <Credentials
+        loadStatus={(provider, host) => client.credentialStatus(provider, host)}
+        onSave={(provider, host, secret) => client.saveCredential(provider, host, secret)}
+        onClear={(provider, host) => client.clearCredential(provider, host)} />}
+      {page === "demos" && (dashboardState === "loading" || dashboardState === "delayed") &&
+        <section className="panel"><h1>Demo Gallery</h1><p>Loading fixed SIMULATED scenarios…</p></section>}
+      {page === "demos" && dashboardState === "error" && <section className="panel" role="alert">
+        <h1>Demo Gallery</h1><p>{dashboardError}</p><button onClick={() => void loadRuns()}>Retry demos</button></section>}
+      {page === "demos" && (dashboardState === "empty" || dashboardState === "populated") &&
+        <DemoGallery fixedRuns={demoRuns} onOpen={(id) => void openRun(id)} />}
+      {page === "run-detail" && detailLoading && <section className="panel"><h1>Run Detail</h1>
+        <p>Loading the server snapshot and event cursor…</p></section>}
+      {page === "run-detail" && !detailLoading && !selected && <section className="panel" role="alert">
+        <h1>Run Detail unavailable</h1><p>{actionError || "No run was selected."}</p></section>}
+      {page === "run-detail" && selected && <RunDetail run={selected} events={events}
+        simulated={runtime.capabilities.demo} connection={connection} diff={diff}
+        approval={approval} onDecision={(decision, digest) => void decide(decision, digest)}
+        onCancel={runtime.capabilities.cancelRuns ? () => void cancel() : undefined}
+        cancelPending={cancelPending} error={actionError} />}
     </main></div>
   </div>;
 }

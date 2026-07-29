@@ -92,9 +92,16 @@ func (r *Router) writeEvents(
 	next *uint64,
 ) bool {
 	for _, event := range events {
-		data := event.Payload
-		if !json.Valid(data) {
-			data = json.RawMessage(`{"code":"INVALID_EVENT_PAYLOAD"}`)
+		payload := event.Payload
+		if !json.Valid(payload) {
+			payload = json.RawMessage(`{"code":"INVALID_EVENT_PAYLOAD"}`)
+		}
+		data, marshalErr := json.Marshal(struct {
+			At      time.Time       `json:"at"`
+			Payload json.RawMessage `json:"payload"`
+		}{At: event.At, Payload: payload})
+		if marshalErr != nil {
+			data = []byte(`{"at":"0001-01-01T00:00:00Z","payload":{"code":"INVALID_EVENT_PAYLOAD"}}`)
 		}
 		redacted := r.redact(string(data))
 		if !json.Valid([]byte(redacted)) {
