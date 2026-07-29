@@ -435,6 +435,46 @@ func (s *SQLiteStore) PutArtifact(ctx context.Context, artifact domain.Artifact)
 	return err
 }
 
+func (s *SQLiteStore) GetArtifact(
+	ctx context.Context,
+	runID domain.RunID,
+	artifactID string,
+) (domain.Artifact, error) {
+	if err := validateRunID(runID); err != nil {
+		return domain.Artifact{}, err
+	}
+	if artifactID == "" {
+		return domain.Artifact{}, storeport.ErrEmptyArtifactID
+	}
+	if err := checkContext(ctx); err != nil {
+		return domain.Artifact{}, err
+	}
+	var artifact domain.Artifact
+	var truncated bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, run_id, kind, sha256, content, truncated
+		FROM artifacts WHERE id = ? AND run_id = ?`, artifactID, runID,
+	).Scan(
+		&artifact.ID, &artifact.RunID, &artifact.Kind, &artifact.SHA256,
+		&artifact.Content, &truncated,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		exists, existsErr := s.runExists(ctx, runID)
+		if existsErr != nil {
+			return domain.Artifact{}, existsErr
+		}
+		if !exists {
+			return domain.Artifact{}, storeport.ErrRunNotFound
+		}
+		return domain.Artifact{}, storeport.ErrArtifactNotFound
+	}
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	artifact.Truncated = truncated
+	return cloneArtifact(artifact), nil
+}
+
 func (s *SQLiteStore) runExists(ctx context.Context, runID domain.RunID) (bool, error) {
 	var found int
 	err := s.db.QueryRowContext(ctx, "SELECT 1 FROM runs WHERE id = ?", runID).Scan(&found)

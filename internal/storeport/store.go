@@ -13,6 +13,7 @@ var (
 	ErrEmptyRunID       = errors.New("run ID is required")
 	ErrEmptyEventType   = errors.New("event type is required")
 	ErrEmptyArtifactID  = errors.New("artifact ID is required")
+	ErrArtifactNotFound = errors.New("artifact not found")
 	ErrRunAlreadyExists = errors.New("run already exists")
 	ErrRunNotFound      = errors.New("run not found")
 	ErrRunStateChanged  = errors.New("run state changed")
@@ -29,4 +30,5 @@ type Store interface {
 	ListRuns(context.Context) ([]domain.Run, error)
 	ListEvents(context.Context, domain.RunID, uint64) ([]domain.RunEvent, error)
 	PutArtifact(context.Context, domain.Artifact) error
+	GetArtifact(context.Context, domain.RunID, string) (domain.Artifact, error)
 }

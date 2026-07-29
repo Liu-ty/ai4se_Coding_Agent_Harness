@@ -1101,7 +1101,7 @@ git commit -m "feat: connect OpenAI-compatible and Anthropic providers"
 
 ---
 
-### Task 13: OS Keyring and Encrypted Vault Credentials — complete (this commit)
+### Task 13: OS Keyring and Encrypted Vault Credentials — complete (9d4efca)
 
 **PR #9 unresolved-thread follow-up:** Vault status now checks record presence and modification time without requesting the master password, deriving an Argon2id key, or decrypting credential bytes. Actual credential use still performs full authenticated decryption and endpoint binding.
 
@@ -1182,7 +1182,7 @@ git commit -m "feat: store provider credentials securely"
 
 ---
 
-### Task 14: Application Service, Preflight, and Repository Locking — complete (this commit)
+### Task 14: Application Service, Preflight, and Repository Locking — complete (f73a4df)
 
 **Final review remediation:** Credentials may be sent only to HTTPS endpoints or literal loopback-IP HTTP endpoints; non-default endpoint hosts/ports require explicit confirmation. Repository ownership uses a durable, owner-matched cross-process lease and startup recovery releases only the matching abandoned lease. Agent approval digests include captured baseline commit/diff values, and resumed validation failures return structured feedback to re-decision.
 
@@ -1260,7 +1260,7 @@ git commit -m "feat: orchestrate safe local harness runs"
 
 ---
 
-### Task 15: Versioned HTTP API, SSE, and Local Web Security
+### Task 15: Versioned HTTP API, SSE, and Local Web Security — complete (this commit)
 
 **Files:**
 - Create: `internal/httpapi/router.go`
@@ -1270,13 +1270,18 @@ git commit -m "feat: orchestrate safe local harness runs"
 - Create: `internal/httpapi/events.go`
 - Create: `internal/httpapi/security.go`
 - Test: `internal/httpapi/api_test.go`
+- Modify: `internal/storeport/store.go`
+- Modify: `internal/store/memory.go`
+- Modify: `internal/store/sqlite.go`
+- Test: `internal/store/store_test.go`
+- Test: `internal/storeport/storeport_test.go`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**
 - Consumes: `app.Service`, store event reads, credential service, route-capability set.
 - Produces: `/api/v1` JSON/SSE API, local-session middleware, and a demo-safe route composition mechanism.
 
-- [ ] **Step 1: Write failing route, origin, CSRF, SSE replay, and secret-response tests**
+- [x] **Step 1: Write failing route, origin, CSRF, SSE replay, and secret-response tests**
 
 ```go
 func TestMutationRequiresSessionAndOrigin(t *testing.T) {
@@ -1302,12 +1307,12 @@ func TestCredentialStatusResponseNeverContainsCanary(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/httpapi -v`  
 Expected: FAIL because HTTP API is missing.
 
-- [ ] **Step 3: Implement exact routes and JSON error envelope**
+- [x] **Step 3: Implement exact routes and JSON error envelope**
 
 Routes:
 
@@ -1328,18 +1333,18 @@ GET    /healthz
 
 Errors use the exact envelope shape `{"error":{"code":"INVALID_JSON","message":"request body is not valid JSON","request_id":"req-123"}}`; messages are redacted and bounded.
 
-- [ ] **Step 4: Implement local security and SSE**
+- [x] **Step 4: Implement local security and SSE**
 
 Bind composition to `127.0.0.1`; generate a 32-byte random session token; exchange a one-time bootstrap token for an HttpOnly, SameSite=Strict cookie; redirect to a clean URL; require matching Host/Origin and a per-session CSRF header for mutations; emit `id`, `event`, and JSON `data` SSE fields with heartbeat comments and `Last-Event-ID` replay.
 
-- [ ] **Step 5: Add demo route-capability tests and run green**
+- [x] **Step 5: Add demo route-capability tests and run green**
 
 The router constructor accepts capabilities. A demo router must return 404 for credentials, arbitrary run creation, config validation, and artifacts outside fixed demo runs.
 
 Run: `go test ./internal/httpapi -v`  
 Expected: PASS for every route, invalid JSON, body size, auth/origin/CSRF, SSE replay/disconnect, 404 capability pruning, and secret canary.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add internal/httpapi AGENT_LOG.md

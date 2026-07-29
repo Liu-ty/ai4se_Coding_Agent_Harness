@@ -67,3 +67,7 @@ func (*recordingStore) ListEvents(context.Context, domain.RunID, uint64) ([]doma
 }
 
 func (*recordingStore) PutArtifact(context.Context, domain.Artifact) error { return nil }
+
+func (*recordingStore) GetArtifact(context.Context, domain.RunID, string) (domain.Artifact, error) {
+	return domain.Artifact{}, nil
+}

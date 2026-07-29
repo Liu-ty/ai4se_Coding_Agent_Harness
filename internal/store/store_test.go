@@ -88,6 +88,34 @@ func contract(t *testing.T, newStore factory) {
 	if len(events) != 2 || events[0].Sequence != 2 || events[1].Sequence != 3 {
 		t.Fatalf("ListEvents(from=2) = %#v, want sequences 2 and 3", events)
 	}
+	artifact := domain.Artifact{
+		ID: "artifact-1", RunID: run.ID, Kind: "diff", SHA256: "digest",
+		Content: []byte("content"), Truncated: true,
+	}
+	if err := s.PutArtifact(ctx, artifact); err != nil {
+		t.Fatal(err)
+	}
+	gotArtifact, err := s.GetArtifact(ctx, run.ID, artifact.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotArtifact.ID != artifact.ID || gotArtifact.RunID != artifact.RunID ||
+		gotArtifact.Kind != artifact.Kind || gotArtifact.SHA256 != artifact.SHA256 ||
+		string(gotArtifact.Content) != string(artifact.Content) ||
+		gotArtifact.Truncated != artifact.Truncated {
+		t.Fatalf("GetArtifact() = %#v, want %#v", gotArtifact, artifact)
+	}
+	gotArtifact.Content[0] = 'X'
+	gotArtifact, err = s.GetArtifact(ctx, run.ID, artifact.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotArtifact.Content) != "content" {
+		t.Fatalf("artifact content aliases store memory: %q", gotArtifact.Content)
+	}
+	if _, err := s.GetArtifact(ctx, run.ID, "missing"); !errors.Is(err, storeport.ErrArtifactNotFound) {
+		t.Fatalf("missing GetArtifact() error = %v", err)
+	}
 }
 
 func TestStoresRejectDuplicateRunWithoutMutation(t *testing.T) {
@@ -182,6 +210,9 @@ func TestStoresRejectRequiredIdentifiers(t *testing.T) {
 			}
 			if err := s.PutArtifact(ctx, domain.Artifact{RunID: "run-1"}); !errors.Is(err, storeport.ErrEmptyArtifactID) {
 				t.Fatalf("empty artifact ID error = %v", err)
+			}
+			if _, err := s.GetArtifact(ctx, "run-1", ""); !errors.Is(err, storeport.ErrEmptyArtifactID) {
+				t.Fatalf("empty GetArtifact ID error = %v", err)
 			}
 		})
 	}
@@ -400,6 +431,9 @@ func TestStoresHonorAlreadyCancelledContextsWithoutMutation(t *testing.T) {
 			}
 			if err := s.PutArtifact(cancelled, domain.Artifact{ID: "artifact-1", RunID: initial.ID}); !errors.Is(err, context.Canceled) {
 				t.Fatalf("cancelled PutArtifact() error = %v, want context.Canceled", err)
+			}
+			if _, err := s.GetArtifact(cancelled, initial.ID, "artifact-1"); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled GetArtifact() error = %v, want context.Canceled", err)
 			}
 		})
 	}

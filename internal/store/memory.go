@@ -217,3 +217,29 @@ func (s *MemoryStore) PutArtifact(ctx context.Context, artifact domain.Artifact)
 	s.artifacts[artifact.ID] = cloneArtifact(artifact)
 	return nil
 }
+
+func (s *MemoryStore) GetArtifact(
+	ctx context.Context,
+	runID domain.RunID,
+	artifactID string,
+) (domain.Artifact, error) {
+	if err := validateRunID(runID); err != nil {
+		return domain.Artifact{}, err
+	}
+	if artifactID == "" {
+		return domain.Artifact{}, storeport.ErrEmptyArtifactID
+	}
+	if err := checkContext(ctx); err != nil {
+		return domain.Artifact{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.runs[runID]; !ok {
+		return domain.Artifact{}, storeport.ErrRunNotFound
+	}
+	artifact, ok := s.artifacts[artifactID]
+	if !ok || artifact.RunID != runID {
+		return domain.Artifact{}, storeport.ErrArtifactNotFound
+	}
+	return cloneArtifact(artifact), nil
+}
