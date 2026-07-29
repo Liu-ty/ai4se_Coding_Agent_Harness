@@ -38,6 +38,31 @@ type deterministicReader struct {
 	value byte
 }
 
+type oneShotFailures struct {
+	mu     sync.Mutex
+	target string
+}
+
+func (f *oneShotFailures) arm(target string) bool {
+	if target != "runs" && target != "credential" {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.target = target
+	return true
+}
+
+func (f *oneShotFailures) consume(target string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.target != target {
+		return false
+	}
+	f.target = ""
+	return true
+}
+
 func (r *deterministicReader) Read(buffer []byte) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -272,11 +297,12 @@ func main() {
 		panic(err)
 	}
 
-	localHandler := assetWrapper(dist, localRouter, nil, repoRoot, localStore)
+	failures := &oneShotFailures{}
+	localHandler := assetWrapper(dist, localRouter, nil, repoRoot, localStore, failures)
 	demoShell := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		serveIndex(writer, index, runtimeScript("", true, []string{"demo-feedback"}))
 	})
-	demoHandler := assetWrapper(dist, demoRouter, demoShell, "", nil)
+	demoHandler := assetWrapper(dist, demoRouter, demoShell, "", nil, nil)
 	go func() {
 		if serveErr := http.ListenAndServe(localAddress, localHandler); serveErr != nil &&
 			!errors.Is(serveErr, http.ErrServerClosed) {
@@ -311,6 +337,7 @@ func assetWrapper(
 	shell http.Handler,
 	repoRoot string,
 	eventStore *store.MemoryStore,
+	failures *oneShotFailures,
 ) http.Handler {
 	files := http.FileServer(http.Dir(dist))
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -332,6 +359,39 @@ func assetWrapper(
 			}
 			writer.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(writer).Encode(events)
+			return
+		}
+		if failures != nil && request.URL.Path == "/e2e/fail-next" {
+			var input struct {
+				Target string `json:"target"`
+			}
+			if request.Method != http.MethodPost ||
+				json.NewDecoder(request.Body).Decode(&input) != nil ||
+				!failures.arm(input.Target) {
+				http.Error(writer, "invalid one-shot failure target", http.StatusBadRequest)
+				return
+			}
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		failureTarget := ""
+		failureMessage := ""
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/runs":
+			failureTarget, failureMessage = "runs", "Injected run-list failure"
+		case request.Method == http.MethodGet &&
+			strings.HasPrefix(request.URL.Path, "/api/v1/credentials/"):
+			failureTarget, failureMessage = "credential", "Injected credential-status failure"
+		}
+		if failureTarget != "" && failures != nil && failures.consume(failureTarget) {
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"error": map[string]string{
+					"code": "E2E_INJECTED_FAILURE", "message": failureMessage,
+					"request_id": "e2e-injected",
+				},
+			})
 			return
 		}
 		if strings.HasPrefix(request.URL.Path, "/assets/") {

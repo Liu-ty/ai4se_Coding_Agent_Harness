@@ -158,6 +158,29 @@ test("authenticated Go httpapi composition supports the complete supervised work
   await expect(page.getByText("Not configured").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Add credential" })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
+
+  const armDashboardFailure = await request.post(`${localURL}/e2e/fail-next`, {
+    data: { target: "runs" },
+  });
+  expect(armDashboardFailure.status()).toBe(204);
+  await page.reload();
+  await expect(page.getByRole("alert")).toContainText("Injected run-list failure");
+  await expect(page.getByRole("button", { name: "Retry loading runs" })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
+  await page.getByRole("button", { name: "Retry loading runs" }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "run-created-1" })).toBeVisible();
+
+  const armCredentialFailure = await request.post(`${localURL}/e2e/fail-next`, {
+    data: { target: "credential" },
+  });
+  expect(armCredentialFailure.status()).toBe(204);
+  await page.getByRole("button", { name: /Credentials/ }).click();
+  await expect(page.getByRole("alert")).toContainText("Injected credential-status failure");
+  await expect(page.getByRole("button", { name: "Retry status" })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
+  await page.getByRole("button", { name: "Retry status" }).click();
+  await expect(page.getByText("Not configured").first()).toBeVisible();
 });
 
 test("Go demo router exposes only fixed SIMULATED data and prunes mutations", async ({ page, request }) => {
