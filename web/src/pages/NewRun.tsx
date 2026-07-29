@@ -14,7 +14,7 @@ const initial: CreateRunRequest = {
 type RequestState = "idle" | "pending" | "success" | "error";
 
 export function NewRun({ onPreflight, onCreate }: {
-  onPreflight: (request: CreateRunRequest) => Promise<PreflightReport>;
+  onPreflight: (request: CreateRunRequest, signal?: AbortSignal) => Promise<PreflightReport>;
   onCreate: (request: CreateRunRequest) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState(initial);
@@ -23,7 +23,11 @@ export function NewRun({ onPreflight, onCreate }: {
   const [createState, setCreateState] = useState<RequestState>("idle");
   const [message, setMessage] = useState("");
   const [delayed, setDelayed] = useState(false);
+  const [validatedFingerprint, setValidatedFingerprint] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
+  const generationRef = useRef(0);
+  const preflightControllerRef = useRef<AbortController | undefined>(undefined);
+  const fingerprint = (value: CreateRunRequest) => JSON.stringify(value);
 
   useEffect(() => {
     if (validationState !== "pending" && createState !== "pending") {
@@ -33,10 +37,14 @@ export function NewRun({ onPreflight, onCreate }: {
     const timer = window.setTimeout(() => setDelayed(true), 15_000);
     return () => window.clearTimeout(timer);
   }, [validationState, createState]);
+  useEffect(() => () => preflightControllerRef.current?.abort(), []);
 
   const update = <K extends keyof CreateRunRequest>(name: K, value: CreateRunRequest[K]) => {
+    generationRef.current += 1;
+    preflightControllerRef.current?.abort();
     setDraft((current) => ({ ...current, [name]: value }));
     setPreflight(undefined);
+    setValidatedFingerprint("");
     setValidationState("idle");
     setMessage("Draft changed. Validate preflight again.");
   };
@@ -46,23 +54,34 @@ export function NewRun({ onPreflight, onCreate }: {
   });
   const validate = async () => {
     if (!formRef.current?.reportValidity()) return;
+    preflightControllerRef.current?.abort();
+    const controller = new AbortController();
+    preflightControllerRef.current = controller;
+    const requestFingerprint = fingerprint(draft);
+    const generation = ++generationRef.current;
     setValidationState("pending");
     setMessage("Validating repository, configuration, executable, and credential status…");
     try {
-      const report = await onPreflight(draft);
+      const report = await onPreflight(draft, controller.signal);
+      if (controller.signal.aborted || generation !== generationRef.current ||
+        requestFingerprint !== fingerprint(draft)) return;
       setPreflight(report);
+      setValidatedFingerprint(report.ok ? requestFingerprint : "");
       setValidationState(report.ok ? "success" : "error");
       setMessage(report.ok ? "Preflight passed. Run creation is available." :
         "Preflight did not pass. Resolve the findings and retry.");
     } catch (error) {
+      if (controller.signal.aborted || generation !== generationRef.current) return;
       setPreflight(undefined);
+      setValidatedFingerprint("");
       setValidationState("error");
       setMessage(error instanceof Error ? error.message : "Preflight request failed. Retry validation.");
     }
   };
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!preflight?.ok || createState === "pending") return;
+    if (!preflight?.ok || validatedFingerprint !== fingerprint(draft) ||
+      createState === "pending") return;
     setCreateState("pending");
     setMessage("Creating bounded run…");
     try {
@@ -93,7 +112,8 @@ export function NewRun({ onPreflight, onCreate }: {
           <button type="button" disabled={validationState === "pending"} onClick={() => void validate()}>
             {validationState === "pending" ? "Validating…" : validationState === "error" ? "Retry preflight" : "Validate preflight"}
           </button>
-          <button type="submit" disabled={!preflight?.ok || createState === "pending"}>
+          <button type="submit" disabled={!preflight?.ok ||
+            validatedFingerprint !== fingerprint(draft) || createState === "pending"}>
             {createState === "pending" ? "Creating…" : createState === "error" ? "Retry create" : "Create run"}
           </button>
         </div>

@@ -1,4 +1,4 @@
-import type { ConnectionState, Run, RunEvent } from "../api/types";
+import type { ConnectionState, Run, RunEvent, StreamFailure } from "../api/types";
 import { ApprovalPanel, type ApprovalRequest } from "../components/ApprovalPanel";
 import { DiffViewer } from "../components/DiffViewer";
 import { StatusLabel } from "../components/StatusLabel";
@@ -22,17 +22,19 @@ function latestReason(events: RunEvent[]) {
 }
 
 export function RunDetail({ run, events, diff, approval, simulated, connection = "connected",
-  onDecision, onCancel, cancelPending = false, error }: {
+  onDecision, onCancel, cancelPending = false, error, streamError, onReconnect }: {
   run: Run;
   events: RunEvent[];
   diff?: { content: string; truncated: boolean };
   approval?: ApprovalRequest;
   simulated?: boolean;
   connection?: ConnectionState;
-  onDecision?: (decision: "approve" | "reject", digest: string) => void;
+  onDecision?: (decision: "approve" | "reject", digest: string) => Promise<void>;
   onCancel?: () => void;
   cancelPending?: boolean;
   error?: string;
+  streamError?: StreamFailure;
+  onReconnect?: () => void;
 }) {
   const budgets = latestBudgets(events);
   const reason = latestReason(events);
@@ -61,9 +63,13 @@ export function RunDetail({ run, events, diff, approval, simulated, connection =
       </section>
       <section className="panel" aria-live="polite"><h2>Event stream</h2>
         <StatusLabel text={connection[0].toUpperCase() + connection.slice(1)}
-          tone={connection === "disconnected" ? "danger" :
+          tone={connection === "disconnected" || connection === "failed" ? "danger" :
             connection === "reconnecting" ? "warning" : "success"} />
         <p>Latest sequence: {events.at(-1)?.sequence ?? 0}. Reconnect resumes from this cursor.</p>
+        {streamError && <div role="alert">
+          <p>{streamError.message} ({streamError.kind}, {streamError.attempts} attempts).</p>
+          {onReconnect && <button onClick={onReconnect}>Reconnect event stream</button>}
+        </div>}
       </section>
       {approval && onDecision && <ApprovalPanel request={approval} onDecision={onDecision} />}
       <section className="panel"><h2>Terminal reason</h2>

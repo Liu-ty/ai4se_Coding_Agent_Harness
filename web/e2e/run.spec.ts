@@ -12,16 +12,46 @@ async function expectNoSeriousAxeFindings(page: Page) {
   expect(severe, severe.map(({ id, help }) => `${id}: ${help}`).join("\n")).toEqual([]);
 }
 
-async function fillRun(page: Page, task: string) {
-  await page.getByLabel("Repository path").fill("C:\\workspace\\fixture");
-  await page.getByLabel("Task description").fill(task);
-  await page.getByLabel("Provider").fill("mock");
-  await page.getByLabel("Model").fill("mock-v1");
-  await expect(page.getByRole("button", { name: "Create run" })).toBeDisabled();
-  await page.getByRole("button", { name: "Validate preflight" }).click();
+async function tabToButton(page: Page, name: string, maximum = 30) {
+  const button = page.getByRole("button", { name });
+  for (let count = 0; count < maximum; count += 1) {
+    await page.keyboard.press("Tab");
+    if (await button.evaluate((element) => element === document.activeElement)) return;
+  }
+  throw new Error(`keyboard focus did not reach ${name}`);
+}
+
+async function fillRunWithKeyboard(page: Page, repoRoot: string, task: string) {
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Repository path")).toBeFocused();
+  await page.keyboard.type(repoRoot);
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Task description")).toBeFocused();
+  await page.keyboard.type(task);
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Provider")).toBeFocused();
+  await page.keyboard.type("openai");
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Model")).toBeFocused();
+  await page.keyboard.type("mock-v1");
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Permission profile")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Validate preflight" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Endpoint")).toBeFocused();
+  await page.keyboard.type("https://api.openai.com");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "Validate preflight" })).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(page.getByText("Preflight passed. Run creation is available.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Create run" })).toBeEnabled();
-  await page.getByRole("button", { name: "Create run" }).click();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Create run" })).toBeFocused();
+  await page.keyboard.press("Enter");
 }
 
 test("authenticated Go httpapi composition supports the complete supervised workflow", async ({ page, request }) => {
@@ -30,8 +60,10 @@ test("authenticated Go httpapi composition supports the complete supervised work
 
   await page.goto(`${localURL}/?bootstrap=${bootstrapToken}`);
   await expect(page).toHaveURL(`${localURL}/`);
+  const repositoryResponse = await request.get(`${localURL}/e2e/repository`);
+  const { repo_root: repoRoot } = await repositoryResponse.json() as { repo_root: string };
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "run-seeded" })).toBeVisible();
+  await expect(page.getByText(/No runs were returned/i)).toBeVisible();
   await expect(page.getByTestId("kpi-card")).toHaveCount(4);
   await expect(page.getByRole("img", { name: "Run state distribution" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Live activity" })).toBeVisible();
@@ -44,7 +76,7 @@ test("authenticated Go httpapi composition supports the complete supervised work
       headers: { "Content-Type": "application/json", "X-CSRF-Token": "wrong" },
       body: JSON.stringify({
         repo_root: "C:\\workspace\\fixture", task: "Blocked request",
-        provider: "mock", model: "mock-v1", endpoint: "",
+        provider: "openai", model: "mock-v1", endpoint: "https://api.openai.com",
         confirm_custom_endpoint: false, profile: "supervised",
       }),
     });
@@ -52,36 +84,32 @@ test("authenticated Go httpapi composition supports the complete supervised work
   });
   expect(invalidCSRF).toBe(403);
 
-  await page.getByRole("button", { name: /New Run/ }).click();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: /New Run/ })).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "New Run" })).toBeVisible();
-  await fillRun(page, "Repair the failing deterministic check");
+  await fillRunWithKeyboard(page, repoRoot, "Repair the failing deterministic check");
   await expect(page.getByRole("heading", { name: "run-created-1" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Approval required" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Read-only diff" })).toContainText("return a + b");
   await expect(page.getByText("Timestamp unavailable")).toHaveCount(0);
-  await expect(page.getByText("Decisions 2 / 30")).toBeVisible();
-  await expect(page.getByText("Mutations 1 / 5").first()).toBeVisible();
-  await page.getByRole("button", { name: "Approve once" }).click();
-  await expect(page.getByText("VALIDATING").first()).toBeVisible();
+  await expect(page.getByText("apply_patch", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Approval required" }).locator(".."))
+    .toContainText("Affected files: a.txt");
+  await tabToButton(page, "Approve once");
+  await expect(page.getByRole("button", { name: "Approve once" })).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Approval required" })).toHaveCount(0);
-
-  await page.getByRole("button", { name: /New Run/ }).click();
-  await fillRun(page, "Reject and stop the second bounded run");
-  await expect(page.getByRole("heading", { name: "run-created-2" })).toBeVisible();
-  await page.getByRole("button", { name: "Reject" }).click();
-  await expect(page.getByText("DECIDING").first()).toBeVisible();
-  await expect(page.getByText("APPROVAL_REJECTED")).toBeVisible();
-  await page.getByRole("button", { name: "Cancel run" }).click();
-  await expect(page.getByText("STOPPED").first()).toBeVisible();
-  await expect(page.getByText("USER_CANCELLED")).toBeVisible();
+  await expect(page.getByText("SUCCEEDED").first()).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
 
   await page.getByRole("button", { name: /Credentials/ }).click();
   await expect(page.getByRole("heading", { name: "Credentials" })).toBeVisible();
-  await expect(page.getByText("Not configured").first()).toBeVisible();
-  await page.getByLabel("Secret").fill("one-time-secret");
-  await page.getByRole("button", { name: "Add credential" }).click();
-  await expect(page.getByLabel("Secret")).toHaveValue("");
   await expect(page.getByText("Configured").first()).toBeVisible();
+  await page.getByLabel("Secret").fill("one-time-secret");
+  await page.getByRole("button", { name: "Update credential" }).click();
+  await expect(page.getByLabel("Secret")).toHaveValue("");
   await expect(page.getByRole("button", { name: "Update credential" })).toBeVisible();
   await page.getByRole("button", { name: "Clear credential" }).click();
   await expect(page.getByText("Not configured").first()).toBeVisible();

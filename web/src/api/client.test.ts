@@ -49,7 +49,9 @@ it("reconnects SSE from the latest observed sequence", async () => {
   });
   await stream.run("/api/v1/runs/run-1/events", 2);
   expect(requests).toEqual(["initial", "41"]);
-  expect(states).toEqual(["connected", "disconnected", "reconnecting", "reconnected"]);
+  expect(states).toEqual([
+    "connected", "disconnected", "reconnecting", "reconnected", "disconnected", "failed",
+  ]);
 });
 
 it("delivers an SSE event before the long-lived response closes", async () => {
@@ -119,6 +121,7 @@ it("retries rejected connects and read errors, then announces reconnected after 
   expect(observed).toEqual([7]);
   expect(states).toEqual([
     "disconnected", "reconnecting", "disconnected", "reconnecting", "reconnected",
+    "disconnected", "failed",
   ]);
 });
 
@@ -132,6 +135,46 @@ it("bounds default reconnect attempts", async () => {
   });
   await stream.run("/events");
   expect(connect).toHaveBeenCalledTimes(5);
+});
+
+it("publishes a structured terminal stream failure after bounded retries", async () => {
+  const states: string[] = [];
+  const failures: unknown[] = [];
+  const stream = new RunEventStream({
+    connect: vi.fn().mockRejectedValue(new Error("offline")),
+    onEvent: () => undefined,
+    onState: (state) => states.push(state),
+    onError: (failure) => failures.push(failure),
+    retryDelay: 0,
+  });
+  await stream.run("/events", 2);
+  expect(states.slice(-2)).toEqual(["disconnected", "failed"]);
+  expect(failures).toEqual([{
+    kind: "connect", message: "offline", attempts: 2, lastSequence: undefined,
+  }]);
+});
+
+it("manual recovery preserves the latest event cursor", async () => {
+  const latest: Array<number | undefined> = [];
+  const states: string[] = [];
+  const responses = [
+    new Response("id: 7\nevent: RunEvent\ndata: {\"ok\":true}\n\n"),
+    new Response("id: 8\nevent: RunEvent\ndata: {\"ok\":true}\n\n"),
+  ];
+  let stream!: RunEventStream;
+  stream = new RunEventStream({
+    connect: async (_url, cursor) => {
+      latest.push(cursor);
+      return responses.shift()!;
+    },
+    onEvent: (event) => { if (event.sequence === 8) stream.stop(); },
+    onState: (state) => states.push(state),
+    retryDelay: 0,
+  });
+  await stream.run("/events", 1);
+  await stream.run("/events", 1);
+  expect(latest).toEqual([undefined, 7]);
+  expect(states.at(-1)).toBe("reconnected");
 });
 
 it("skips a malformed frame and continues with the next valid event", async () => {

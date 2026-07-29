@@ -31,14 +31,50 @@ it("renders validation failure evidence and remaining budgets", async () => {
 it("approval panel offers exactly one-time approve and reject decisions", async () => {
   const onDecision = vi.fn();
   render(<ApprovalPanel request={{
-    digest: "sha256:abc", action: "apply_patch", files: ["src/sum.ts"],
-    risk: "Modifies one tracked file",
+    digest: "sha256:abc", action: { kind: "apply_patch", args: { patch: "bounded" } },
+    affectedFiles: ["src/sum.ts"], risk: "medium", riskReason: "Modifies one tracked file",
   }} onDecision={onDecision} />);
   await userEvent.click(screen.getByRole("button", { name: "Approve once" }));
   expect(onDecision).toHaveBeenCalledWith("approve", "sha256:abc");
   expect(screen.queryByText(/always allow|remember/i)).toBeNull();
   expect(screen.getByRole("button", { name: "Approve once" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled();
+});
+
+it.each(["approve", "reject"] as const)(
+  "approval panel recovers when %s fails",
+  async (decision) => {
+    const onDecision = vi.fn().mockRejectedValue(new Error(`${decision} unavailable`));
+    render(<ApprovalPanel request={{
+      digest: "sha256:abc",
+      action: { kind: "apply_patch", args: { patch: "bounded" } },
+      affectedFiles: ["src/sum.ts"],
+      risk: "medium",
+      riskReason: "Modifies one tracked file",
+    }} onDecision={onDecision} />);
+    await userEvent.click(screen.getByRole("button", {
+      name: decision === "approve" ? "Approve once" : "Reject",
+    }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(`${decision} unavailable`);
+    expect(screen.getByRole("button", { name: "Approve once" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+  },
+);
+
+it("approval panel waits for the decision promise", async () => {
+  let resolve!: () => void;
+  const onDecision = vi.fn(() => new Promise<void>((done) => { resolve = done; }));
+  render(<ApprovalPanel request={{
+    digest: "sha256:abc",
+    action: { kind: "apply_patch", args: { patch: "bounded" } },
+    affectedFiles: ["src/sum.ts"],
+    risk: "medium",
+    riskReason: "Modifies one tracked file",
+  }} onDecision={onDecision} />);
+  await userEvent.click(screen.getByRole("button", { name: "Approve once" }));
+  expect(screen.getByRole("button", { name: "Approving…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled();
+  resolve();
 });
 
 it("renders a read-only keyboard-focusable diff", () => {
@@ -76,6 +112,19 @@ it("derives budgets and terminal reason only from server events", () => {
   rerender(<RunDetail run={run} events={[]} connection="connected" />);
   expect(screen.getByText("Budget data unavailable")).toBeVisible();
   expect(screen.getByText("Terminal reason unavailable")).toBeVisible();
+});
+
+it("offers cursor-preserving reconnect after the event stream fails", async () => {
+  const reconnect = vi.fn();
+  render(<RunDetail run={{
+    id: "run-1", state: "DECIDING", profile: "supervised", task: "Repair",
+    repo_root: "C:\\repo", current_stage: "decision", created_at: "", updated_at: "",
+  }} events={fixtureEvents} connection="failed"
+    streamError={{ kind: "connect", message: "Event stream unavailable", attempts: 5, lastSequence: 8 }}
+    onReconnect={reconnect} />);
+  expect(screen.getByRole("alert")).toHaveTextContent("Event stream unavailable");
+  await userEvent.click(screen.getByRole("button", { name: "Reconnect event stream" }));
+  expect(reconnect).toHaveBeenCalledOnce();
 });
 
 it("dashboard renders four server-derived KPIs, visualization, activity, and runs", () => {

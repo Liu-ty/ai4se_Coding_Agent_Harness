@@ -69,8 +69,16 @@ export interface ErrorEnvelope {
 export type ConnectionState =
   | "connected"
   | "disconnected"
+  | "failed"
   | "reconnecting"
   | "reconnected";
+
+export interface StreamFailure {
+  kind: "connect" | "http" | "read";
+  message: string;
+  attempts: number;
+  lastSequence?: number;
+}
 
 export interface RunEvent {
   sequence: number;

@@ -6,6 +6,7 @@ import type {
   Run,
   RunEvent,
   RuntimeConfig,
+  StreamFailure,
 } from "./api/types";
 import type { ApprovalRequest } from "./components/ApprovalPanel";
 import { Credentials } from "./pages/Credentials";
@@ -38,14 +39,26 @@ type Page = "dashboard" | "new-run" | "run-detail" | "credentials" | "demos";
 
 function approvalFrom(events: RunEvent[]): ApprovalRequest | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index].type !== "ApprovalRequired") continue;
     const payload = events[index].payload;
-    if (typeof payload.digest !== "string") continue;
+    const action = payload.action;
+    if (typeof payload.digest !== "string" || !action || typeof action !== "object" ||
+      Array.isArray(action) || typeof (action as Record<string, unknown>).kind !== "string") continue;
+    const actionRecord = action as Record<string, unknown>;
     return {
       digest: payload.digest,
-      action: typeof payload.action === "string" ? payload.action : "Unknown action",
-      files: Array.isArray(payload.files) ? payload.files.filter((item): item is string =>
+      action: {
+        kind: actionRecord.kind as string,
+        args: actionRecord.args && typeof actionRecord.args === "object" &&
+          !Array.isArray(actionRecord.args)
+          ? actionRecord.args as Record<string, unknown> : {},
+      },
+      affectedFiles: Array.isArray(payload.affected_files)
+        ? payload.affected_files.filter((item): item is string =>
         typeof item === "string") : [],
-      risk: typeof payload.risk === "string" ? payload.risk : "Server risk detail unavailable",
+      risk: typeof payload.risk === "string" ? payload.risk : "unknown",
+      riskReason: typeof payload.risk_reason === "string"
+        ? payload.risk_reason : "Server risk detail unavailable",
     };
   }
 }
@@ -71,15 +84,21 @@ export function App({ runtimeConfig, apiClient }: {
   const [detailLoading, setDetailLoading] = useState(false);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [connection, setConnection] = useState<ConnectionState>("disconnected");
+  const [streamError, setStreamError] = useState<StreamFailure>();
   const [diff, setDiff] = useState<{ content: string; truncated: boolean }>();
   const [actionError, setActionError] = useState("");
   const [cancelPending, setCancelPending] = useState(false);
   const streamRef = useRef<RunEventStream | undefined>(undefined);
+  const streamURLRef = useRef("");
+  const selectionGenerationRef = useRef(0);
+  const snapshotGenerationRef = useRef(0);
 
   const navigate = useCallback((next: Page) => {
     if (next !== "run-detail") {
+      selectionGenerationRef.current += 1;
       streamRef.current?.stop();
       streamRef.current = undefined;
+      streamURLRef.current = "";
     }
     setPage(next);
     requestAnimationFrame(() => document.querySelector<HTMLElement>("#main-content")?.focus());
@@ -104,32 +123,53 @@ export function App({ runtimeConfig, apiClient }: {
   useEffect(() => { void loadRuns(); }, [loadRuns]);
   useEffect(() => () => streamRef.current?.stop(), []);
 
-  const loadArtifact = useCallback(async (runId: string, artifactId: string) => {
+  const refreshSnapshot = useCallback(async (runId: string, selectionGeneration: number) => {
+    const snapshotGeneration = ++snapshotGenerationRef.current;
+    const run = await client.getRun(runId);
+    if (selectionGeneration === selectionGenerationRef.current &&
+      snapshotGeneration === snapshotGenerationRef.current) {
+      setSelected(run);
+    }
+    return run;
+  }, [client]);
+
+  const loadArtifact = useCallback(async (
+    runId: string,
+    artifactId: string,
+    selectionGeneration: number,
+  ) => {
     if (!runtime.capabilities.artifacts) return;
     try {
       const artifact = await client.artifact(runId, artifactId);
-      if (artifact.kind.toLowerCase().includes("diff")) {
+      if (selectionGeneration === selectionGenerationRef.current &&
+        artifact.kind.toLowerCase().includes("diff")) {
         setDiff({ content: artifact.content, truncated: artifact.truncated });
       }
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Artifact could not be loaded.");
+      if (selectionGeneration === selectionGenerationRef.current) {
+        setActionError(error instanceof Error ? error.message : "Artifact could not be loaded.");
+      }
     }
   }, [client, runtime.capabilities.artifacts]);
 
   const openRun = useCallback(async (runId: string) => {
+    const selectionGeneration = ++selectionGenerationRef.current;
     streamRef.current?.stop();
     setDetailLoading(true);
     setSelected(undefined);
     setEvents([]);
     setDiff(undefined);
     setActionError("");
+    setStreamError(undefined);
+    setConnection("disconnected");
     navigate("run-detail");
     try {
-      const run = await client.getRun(runId);
-      setSelected(run);
+      await refreshSnapshot(runId, selectionGeneration);
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       const seenArtifacts = new Set<string>();
       const stream = new RunEventStream({
         onEvent: (event) => {
+          if (selectionGeneration !== selectionGenerationRef.current) return;
           setEvents((current) => current.some((item) => item.sequence === event.sequence)
             ? current : [...current, event].sort((left, right) => left.sequence - right.sequence));
           if (runtime.capabilities.demo && typeof event.payload.diff === "string") {
@@ -141,19 +181,32 @@ export function App({ runtimeConfig, apiClient }: {
           const artifactId = artifactReference(event);
           if (artifactId && !seenArtifacts.has(artifactId)) {
             seenArtifacts.add(artifactId);
-            void loadArtifact(runId, artifactId);
+            void loadArtifact(runId, artifactId, selectionGeneration);
           }
+          void refreshSnapshot(runId, selectionGeneration).catch((error) => {
+            if (selectionGeneration === selectionGenerationRef.current) {
+              setActionError(error instanceof Error ? error.message : "Run snapshot could not be refreshed.");
+            }
+          });
         },
-        onState: setConnection,
+        onState: (state) => {
+          if (selectionGeneration === selectionGenerationRef.current) setConnection(state);
+        },
+        onError: (failure) => {
+          if (selectionGeneration === selectionGenerationRef.current) setStreamError(failure);
+        },
       });
       streamRef.current = stream;
-      void stream.run(`/api/v1/runs/${encodeURIComponent(runId)}/events`);
+      streamURLRef.current = `/api/v1/runs/${encodeURIComponent(runId)}/events`;
+      void stream.run(streamURLRef.current);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Run could not be loaded.");
+      if (selectionGeneration === selectionGenerationRef.current) {
+        setActionError(error instanceof Error ? error.message : "Run could not be loaded.");
+      }
     } finally {
-      setDetailLoading(false);
+      if (selectionGeneration === selectionGenerationRef.current) setDetailLoading(false);
     }
-  }, [client, loadArtifact, navigate]);
+  }, [loadArtifact, navigate, refreshSnapshot, runtime.capabilities.demo]);
 
   const createRun = async (request: CreateRunRequest) => {
     const run = await client.createRun(request);
@@ -162,14 +215,17 @@ export function App({ runtimeConfig, apiClient }: {
   };
   const decide = async (decision: "approve" | "reject", digest: string) => {
     if (!selected) return;
+    const runId = selected.id;
+    const selectionGeneration = selectionGenerationRef.current;
     setActionError("");
     try {
-      if (decision === "approve") await client.approve(selected.id, digest);
-      else await client.reject(selected.id, digest, false);
+      if (decision === "approve") await client.approve(runId, digest);
+      else await client.reject(runId, digest, false);
       setEvents((current) => current.filter((event) => event.payload.digest !== digest));
-      setSelected(await client.getRun(selected.id));
+      await refreshSnapshot(runId, selectionGeneration);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Approval decision failed.");
+      throw error;
     }
   };
   const cancel = async () => {
@@ -187,7 +243,14 @@ export function App({ runtimeConfig, apiClient }: {
   };
 
   const approval = runtime.capabilities.approvals ? approvalFrom(events) : undefined;
-  const demoRuns = runs.map((run) => run.id);
+  const declaredDemoRuns = new Set(runtime.capabilities.fixedRuns);
+  const demoRuns = runs.filter((run) => declaredDemoRuns.has(run.id)).map((run) => run.id);
+  const reconnect = () => {
+    if (!streamRef.current || !streamURLRef.current) return;
+    setStreamError(undefined);
+    setConnection("reconnecting");
+    void streamRef.current.run(streamURLRef.current);
+  };
 
   return <div className="shell">
     <aside className="sidebar"><a className="brand" href="#" onClick={(event) => {
@@ -208,10 +271,11 @@ export function App({ runtimeConfig, apiClient }: {
     <main id="main-content" tabIndex={-1}>
       {page === "dashboard" && <Dashboard runs={runs} state={dashboardState}
         error={dashboardError} onRetry={() => void loadRuns()} onOpen={(id) => void openRun(id)} />}
-      {page === "new-run" && <NewRun onPreflight={(request) => client.preflight(request)}
+      {page === "new-run" && <NewRun
+        onPreflight={(request, signal) => client.preflight(request, signal)}
         onCreate={createRun} />}
       {page === "credentials" && <Credentials
-        loadStatus={(provider, host) => client.credentialStatus(provider, host)}
+        loadStatus={(provider, host, signal) => client.credentialStatus(provider, host, signal)}
         onSave={(provider, host, secret) => client.saveCredential(provider, host, secret)}
         onClear={(provider, host) => client.clearCredential(provider, host)} />}
       {page === "demos" && (dashboardState === "loading" || dashboardState === "delayed") &&
@@ -226,9 +290,10 @@ export function App({ runtimeConfig, apiClient }: {
         <h1>Run Detail unavailable</h1><p>{actionError || "No run was selected."}</p></section>}
       {page === "run-detail" && selected && <RunDetail run={selected} events={events}
         simulated={runtime.capabilities.demo} connection={connection} diff={diff}
-        approval={approval} onDecision={(decision, digest) => void decide(decision, digest)}
+        approval={approval} onDecision={decide}
         onCancel={runtime.capabilities.cancelRuns ? () => void cancel() : undefined}
-        cancelPending={cancelPending} error={actionError} />}
+        cancelPending={cancelPending} error={actionError}
+        streamError={streamError} onReconnect={reconnect} />}
     </main></div>
   </div>;
 }

@@ -8,15 +8,22 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/agent"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/app"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/budget"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/credentials"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/feedback"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/httpapi"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/policy"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/provider"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/store"
 )
 
@@ -40,155 +47,175 @@ func (r *deterministicReader) Read(buffer []byte) (int, error) {
 	return len(buffer), nil
 }
 
-type fixtureApplication struct {
-	store *store.MemoryStore
-	mu    sync.Mutex
-	next  int
+type realClock struct{}
+
+func (realClock) Now() time.Time { return time.Now().UTC() }
+
+type deterministicActions struct{}
+
+func (deterministicActions) Execute(
+	context.Context,
+	domain.Action,
+) (agent.ActionResult, error) {
+	return agent.ActionResult{DiffDigest: "e2e-diff"}, nil
 }
 
-func (a *fixtureApplication) CreateRun(
-	ctx context.Context,
-	request app.CreateRunRequest,
-) (domain.Run, error) {
-	a.mu.Lock()
-	a.next++
-	runID := domain.RunID(fmt.Sprintf("run-created-%d", a.next))
-	a.mu.Unlock()
-	now := time.Now().UTC()
-	run := domain.Run{
-		ID: runID, State: domain.StateAwaitingApproval, Profile: request.Profile,
-		Task: request.Task, RepoRoot: request.RepoRoot, CurrentStage: "targeted-test",
-		CreatedAt: now, UpdatedAt: now,
-	}
-	payload := json.RawMessage(`{"summary":"Run created","budgets":{"decisions":{"used":1,"limit":30},"mutations":{"used":0,"limit":5}}}`)
-	if _, err := a.store.CreateRunWithEvent(ctx, run, "RunCreated", payload); err != nil {
-		return domain.Run{}, err
-	}
-	artifactID := "diff-" + string(runID)
-	approval, _ := json.Marshal(map[string]any{
-		"summary": "Exact patch requires approval", "digest": "digest-" + string(runID),
-		"action": "apply_patch", "files": []string{"src/sum.ts"},
-		"risk": "Modifies one tracked source file", "artifact_id": artifactID,
-		"budgets": map[string]any{
-			"decisions": map[string]int{"used": 2, "limit": 30},
-			"mutations": map[string]int{"used": 1, "limit": 5},
-		},
-	})
-	if _, err := a.store.AppendEvent(ctx, runID, "ApprovalRequired", approval); err != nil {
-		return domain.Run{}, err
-	}
-	err := a.store.PutArtifact(ctx, domain.Artifact{
-		ID: artifactID, RunID: runID, Kind: "diff",
-		Content: []byte("--- a/src/sum.ts\n+++ b/src/sum.ts\n- return 1\n+ return a + b\n"),
-	})
-	return run, err
+type deterministicValidation struct{}
+
+func (deterministicValidation) Baseline(
+	context.Context,
+	domain.Run,
+) agent.ValidationResult {
+	return agent.ValidationResult{StageID: "unit", Passed: false}
 }
 
-func (a *fixtureApplication) GetRun(ctx context.Context, runID domain.RunID) (domain.Run, error) {
-	return a.store.GetRun(ctx, runID)
+func (deterministicValidation) Current(
+	context.Context,
+	domain.Run,
+) agent.ValidationResult {
+	return agent.ValidationResult{StageID: "unit", Passed: true}
 }
 
-func (a *fixtureApplication) CancelRun(ctx context.Context, runID domain.RunID) error {
-	run, err := a.store.GetRun(ctx, runID)
-	if err != nil {
-		return err
-	}
-	run.State = domain.StateStopped
-	run.UpdatedAt = time.Now().UTC()
-	_, err = a.store.UpdateRun(ctx, run, "RunStopped", json.RawMessage(
-		`{"summary":"User cancelled the run","reason":"USER_CANCELLED"}`,
-	))
-	return err
+func (deterministicValidation) Final(
+	context.Context,
+	domain.Run,
+) agent.ValidationResult {
+	return agent.ValidationResult{StageID: "full", Passed: true}
 }
 
-func (a *fixtureApplication) Approve(ctx context.Context, runID domain.RunID, digest string) error {
-	if digest != "digest-"+string(runID) {
-		return app.ErrApprovalStale
-	}
-	run, err := a.store.GetRun(ctx, runID)
-	if err != nil {
-		return err
-	}
-	run.State = domain.StateValidating
-	run.UpdatedAt = time.Now().UTC()
-	_, err = a.store.UpdateRun(ctx, run, "ApprovalAccepted", json.RawMessage(
-		`{"summary":"Exact action approved once","budgets":{"decisions":{"used":2,"limit":30},"mutations":{"used":1,"limit":5}}}`,
-	))
-	return err
-}
+type demoApplication struct{ target *store.MemoryStore }
 
-func (a *fixtureApplication) Reject(
+func (*demoApplication) CreateRun(context.Context, app.CreateRunRequest) (domain.Run, error) {
+	return domain.Run{}, errors.New("demo run creation is unavailable")
+}
+func (a *demoApplication) GetRun(
 	ctx context.Context,
 	runID domain.RunID,
-	digest string,
-	terminate bool,
-) error {
-	if digest != "digest-"+string(runID) {
-		return app.ErrApprovalStale
-	}
-	run, err := a.store.GetRun(ctx, runID)
-	if err != nil {
-		return err
-	}
-	if terminate {
-		run.State = domain.StateStopped
-	} else {
-		run.State = domain.StateDeciding
-	}
-	run.UpdatedAt = time.Now().UTC()
-	_, err = a.store.UpdateRun(ctx, run, "ApprovalRejected", json.RawMessage(
-		`{"summary":"Exact action rejected","reason":"APPROVAL_REJECTED"}`,
-	))
-	return err
+) (domain.Run, error) {
+	return a.target.GetRun(ctx, runID)
 }
-
-func (*fixtureApplication) Preflight(
-	_ context.Context,
-	request app.CreateRunRequest,
+func (*demoApplication) CancelRun(context.Context, domain.RunID) error {
+	return errors.New("demo cancellation is unavailable")
+}
+func (*demoApplication) Approve(context.Context, domain.RunID, string) error {
+	return errors.New("demo approval is unavailable")
+}
+func (*demoApplication) Reject(context.Context, domain.RunID, string, bool) error {
+	return errors.New("demo rejection is unavailable")
+}
+func (*demoApplication) Preflight(
+	context.Context,
+	app.CreateRunRequest,
 ) app.PreflightReport {
-	return app.PreflightReport{
-		OK: true, RepoRoot: request.RepoRoot, BaselineCommit: "fixture-commit",
-		BaselineDiffHash: "fixture-diff",
-		Findings: []app.Finding{{
-			Code: "REPOSITORY_REACHABLE", Severity: app.SeverityInfo,
-			Message: "Repository reachable",
-		}},
+	return app.PreflightReport{}
+}
+
+func localRunRequest(root string) app.CreateRunRequest {
+	return app.CreateRunRequest{
+		RepoRoot: root, Task: "Repair the deterministic check",
+		Provider: "openai", Model: "mock-v1", Endpoint: "https://api.openai.com",
+		Profile: domain.ProfileSupervised,
 	}
 }
 
-type fixtureCredentials struct {
-	mu         sync.Mutex
-	configured bool
-}
-
-func (c *fixtureCredentials) Add(_ context.Context, _ credentials.Ref, secret []byte) error {
-	if len(secret) == 0 {
-		return credentials.ErrInvalidCredential
+func newLocalApplication(
+	dataDir string,
+) (*app.Service, *store.MemoryStore, *credentials.Service, error) {
+	target := store.NewMemory()
+	credentialService := credentials.NewService(credentials.NewMemoryStore(), nil)
+	if err := credentialService.Add(context.Background(), credentials.Ref{
+		Provider: "openai", Host: "api.openai.com",
+	}, []byte("e2e-only-credential")); err != nil {
+		return nil, nil, nil, err
 	}
-	c.mu.Lock()
-	c.configured = true
-	c.mu.Unlock()
-	return nil
+	factory := app.AgentLoopFactory(func(
+		_ context.Context,
+		_ app.RunSetup,
+	) (*agent.Loop, *policy.ApprovalStore, error) {
+		var decisions atomic.Int32
+		mockProvider := provider.NewMock(func(
+			context.Context,
+			provider.Request,
+		) (provider.Response, error) {
+			var action domain.Action
+			if decisions.Add(1) == 1 {
+				action = domain.Action{
+					Kind: "apply_patch",
+					Args: json.RawMessage(
+						`{"patch":"--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"}`,
+					),
+				}
+			} else {
+				action = domain.Action{Kind: "finish", Args: json.RawMessage(`{}`)}
+			}
+			return provider.Response{Decision: domain.AgentDecision{
+				Version: "1", Action: action,
+			}}, nil
+		})
+		approvals := policy.NewApprovalStore()
+		loop := agent.New(agent.Dependencies{
+			Store: target, Provider: mockProvider, Actions: deterministicActions{},
+			Policy: policy.NewEngine(), Feedback: feedback.Pipeline{},
+			Validation: deterministicValidation{}, Approvals: approvals,
+			Budget: budget.New(budget.Limits{
+				MaxDecisions: 4, MaxMutations: 2, MaxProtocolRepairs: 1,
+				WallClock: time.Minute,
+			}, realClock{}),
+		})
+		return loop, approvals, nil
+	})
+	var runSequence atomic.Uint64
+	application, err := app.NewService(context.Background(), app.Options{
+		Store: target, Loops: app.NewAgentLoopController(factory),
+		Credentials: credentialService, DataDir: dataDir,
+		Locks: app.NewRepoLocksAt(filepath.Join(dataDir, "repo-locks")),
+		NewRunID: func() domain.RunID {
+			return domain.RunID(fmt.Sprintf("run-created-%d", runSequence.Add(1)))
+		},
+	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return application, target, credentialService, nil
 }
 
-func (c *fixtureCredentials) Update(ctx context.Context, ref credentials.Ref, secret []byte) error {
-	return c.Add(ctx, ref, secret)
-}
+func prepareRepository(root string) (string, error) {
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", err
+	}
+	configText := `version = 1
+default_profile = "supervised"
 
-func (c *fixtureCredentials) Status(_ context.Context, ref credentials.Ref) (credentials.Status, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return credentials.Status{
-		Ref: ref, Configured: c.configured, Backend: "memory-fixture",
-		UpdatedAt: time.Date(2026, 7, 29, 1, 2, 3, 0, time.UTC),
-	}, nil
-}
-
-func (c *fixtureCredentials) Clear(_ context.Context, _ credentials.Ref) error {
-	c.mu.Lock()
-	c.configured = false
-	c.mu.Unlock()
-	return nil
+[[validation]]
+id = "unit"
+kind = "targeted-test"
+executable = "git"
+args = ["--version"]
+working_directory = "."
+timeout = "30s"
+max_output_bytes = 4096
+required = true
+`
+	for path, content := range map[string]string{
+		".ai4se-harness.toml": configText,
+		"a.txt":               "old\n",
+	} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o600); err != nil {
+			return "", err
+		}
+	}
+	for _, args := range [][]string{
+		{"init"}, {"config", "user.name", "AI4SE E2E"},
+		{"config", "user.email", "e2e@example.invalid"},
+		{"add", "."}, {"commit", "-m", "e2e baseline"},
+	} {
+		command := exec.Command("git", args...)
+		command.Dir = root
+		if output, err := command.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("git %v: %w: %s", args, err, output)
+		}
+	}
+	return filepath.Clean(root), nil
 }
 
 func main() {
@@ -200,18 +227,28 @@ func main() {
 	if err != nil {
 		panic("build web assets before E2E: " + err.Error())
 	}
+	tempRoot, err := os.MkdirTemp("", "ai4se-e2e-")
+	if err != nil {
+		panic(err)
+	}
+	repoRoot, err := prepareRepository(filepath.Join(tempRoot, "repo"))
+	if err != nil {
+		panic(err)
+	}
+	localApp, localStore, credentialService, err := newLocalApplication(
+		filepath.Join(tempRoot, "data"),
+	)
+	if err != nil {
+		panic(err)
+	}
 
-	localStore := store.NewMemory()
-	localApp := &fixtureApplication{store: localStore}
-	seedLocal(localStore)
 	random := &deterministicReader{}
 	var localRouter *httpapi.Router
 	localShell := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		runtime := runtimeScript(localRouter.CSRFToken(), false, nil)
-		serveIndex(writer, index, runtime)
+		serveIndex(writer, index, runtimeScript(localRouter.CSRFToken(), false, nil))
 	})
 	localRouter, err = httpapi.NewLocal(httpapi.Options{
-		Application: localApp, Store: localStore, Credentials: &fixtureCredentials{},
+		Application: localApp, Store: localStore, Credentials: credentialService,
 		Capabilities: httpapi.LocalCapabilities(), Host: localAddress, Random: random,
 		AppShell: localShell, PollInterval: 10 * time.Millisecond,
 		HeartbeatInterval: 100 * time.Millisecond,
@@ -221,10 +258,9 @@ func main() {
 	}
 
 	demoStore := store.NewMemory()
-	demoApp := &fixtureApplication{store: demoStore}
 	seedDemo(demoStore)
 	demoRouter, err := httpapi.NewDemo(httpapi.Options{
-		Application: demoApp, Store: demoStore,
+		Application: &demoApplication{target: demoStore}, Store: demoStore,
 		Capabilities: httpapi.DemoCapabilities("demo-feedback"),
 		PollInterval: 10 * time.Millisecond, HeartbeatInterval: 100 * time.Millisecond,
 	})
@@ -232,11 +268,11 @@ func main() {
 		panic(err)
 	}
 
-	localHandler := assetWrapper(dist, localRouter, nil)
+	localHandler := assetWrapper(dist, localRouter, nil, repoRoot)
 	demoShell := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		serveIndex(writer, index, runtimeScript("", true, []string{"demo-feedback"}))
 	})
-	demoHandler := assetWrapper(dist, demoRouter, demoShell)
+	demoHandler := assetWrapper(dist, demoRouter, demoShell, "")
 	go func() {
 		if serveErr := http.ListenAndServe(localAddress, localHandler); serveErr != nil &&
 			!errors.Is(serveErr, http.ErrServerClosed) {
@@ -246,17 +282,6 @@ func main() {
 	if serveErr := http.ListenAndServe(demoAddress, demoHandler); serveErr != nil {
 		panic(serveErr)
 	}
-}
-
-func seedLocal(target *store.MemoryStore) {
-	now := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
-	run := domain.Run{
-		ID: "run-seeded", State: domain.StateAwaitingApproval, Profile: domain.ProfileSupervised,
-		Task: "Repair seeded check", RepoRoot: `C:\fixture`, CurrentStage: "targeted-test",
-		CreatedAt: now, UpdatedAt: now,
-	}
-	_, _ = target.CreateRunWithEvent(context.Background(), run, "RunCreated",
-		json.RawMessage(`{"summary":"Seeded run","budgets":{"decisions":{"used":1,"limit":30},"mutations":{"used":0,"limit":5}}}`))
 }
 
 func seedDemo(target *store.MemoryStore) {
@@ -276,11 +301,16 @@ func seedDemo(target *store.MemoryStore) {
 		json.RawMessage(`{"simulated":true,"category":"SUCCEEDED","summary":"All required checks passed.","reason":"ALL_REQUIRED_CHECKS_PASSED","diff":"--- a/sum.ts\n+++ b/sum.ts\n- return 1\n+ return a + b\n"}`))
 }
 
-func assetWrapper(dist string, api http.Handler, shell http.Handler) http.Handler {
+func assetWrapper(dist string, api http.Handler, shell http.Handler, repoRoot string) http.Handler {
 	files := http.FileServer(http.Dir(dist))
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/healthz" {
 			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if repoRoot != "" && request.URL.Path == "/e2e/repository" {
+			writer.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(writer).Encode(map[string]string{"repo_root": repoRoot})
 			return
 		}
 		if strings.HasPrefix(request.URL.Path, "/assets/") {

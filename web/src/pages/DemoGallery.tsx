@@ -6,6 +6,10 @@ export function DemoGallery({ fixedRuns, onOpen }: {
     <div className="sim-banner">◇ <strong>SIMULATED</strong> DEMO ENVIRONMENT — no real provider, credential, filesystem, or process execution.</div>
     <header className="page-head"><div><h1>Demo Gallery</h1>
       <p>Fixed scenarios demonstrate the feedback loop without production capabilities.</p></div></header>
+    {fixedRuns.length === 0 && <section className="panel">
+      <h2>No fixed demo scenarios</h2>
+      <p>The server did not declare any SIMULATED runs for this environment.</p>
+    </section>}
     <div className="cards">{fixedRuns.map((runId) => <article className="panel demo-card" key={runId}>
       <strong className="sim-label">SIMULATED</strong>
       <h2>Feedback-loop repair</h2>
