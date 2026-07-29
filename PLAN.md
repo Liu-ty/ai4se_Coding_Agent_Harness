@@ -1353,7 +1353,7 @@ git commit -m "feat: expose secure local run API and events"
 
 ---
 
-### Task 16: Open Design React WebUI
+### Task 16: Open Design React WebUI — complete (this commit)
 
 **Files:**
 - Create: `DESIGN.md`
@@ -1381,11 +1381,11 @@ git commit -m "feat: expose secure local run API and events"
 - Consumes: exact `/api/v1` schemas and SSE events from Task 15.
 - Produces: embedded-build-ready SPA covering dashboard, new run, timeline/diff, approval, credentials, and simulated demos.
 
-- [ ] **Step 1: Materialize the approved design system before components**
+- [x] **Step 1: Materialize the approved design system before components**
 
 Use Open Design’s `dashboard` prototype skill with the `linear-app` system. Commit a nine-section `DESIGN.md` defining color, typography, spacing, layout, components, motion, voice, brand, and anti-patterns. Required visible rules: fixed light theme, status text plus icon (never color alone), `SIMULATED` badge for demo, keyboard focus ring, dense developer-tool layout, no decorative gradients, no embedded terminal.
 
-- [ ] **Step 2: Create the Vite/Vitest/Testing Library scaffold and failing UI tests**
+- [x] **Step 2: Create the Vite/Vitest/Testing Library scaffold and failing UI tests**
 
 Run `npm create vite@8.1.0 web -- --template react-ts`, pin `react` and `react-dom` to 19.2, then install Vitest, Testing Library, Playwright, and axe-core as development dependencies. Commit the generated lockfile; subsequent CI uses `npm ci`.
 
@@ -1405,20 +1405,20 @@ it("approval panel never offers a permanent allow", () => {
 })
 ```
 
-- [ ] **Step 3: Run red**
+- [x] **Step 3: Run red**
 
 Run: `npm --prefix web test -- --run`  
 Expected: FAIL because pages/components are absent.
 
-- [ ] **Step 4: Implement typed client, pages, and components**
+- [x] **Step 4: Implement typed client, pages, and components**
 
 Keep server state in a small fetch/SSE client, not a global framework. Reconnect SSE using the latest sequence. Render raw redacted output only on explicit expand. Diff viewer is read-only. Credential inputs use password fields and clear local state immediately after submission. Public-demo mode hides unavailable controls based on server capabilities, while server-side route pruning remains authoritative.
 
-- [ ] **Step 5: Add accessibility and browser E2E tests**
+- [x] **Step 5: Add accessibility and browser E2E tests**
 
 Browser scenario: open demo gallery → start feedback-loop scenario → observe policy denial → observe failed validation → observe changed second patch → reach succeeded → inspect final diff. Keyboard-only scenario must create a supervised local-form draft and open/close the approval panel. Run axe checks on all pages with zero serious/critical findings.
 
-- [ ] **Step 6: Run green, build, and commit**
+- [x] **Step 6: Run green, build, and commit**
 
 Run:
 
