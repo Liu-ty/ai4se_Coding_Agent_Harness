@@ -1,9 +1,12 @@
 package agent_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -159,29 +162,48 @@ func TestApprovalDigestBindsRunBaselines(t *testing.T) {
 }
 
 func TestApprovalRequiredPublishesRedactedBoundProductionRequest(t *testing.T) {
+	const canary = "correct-horse-7429"
 	run := newRun()
 	run.Profile = domain.ProfileSupervised
-	mem := store.NewMemory()
-	if err := mem.CreateRun(context.Background(), run); err != nil {
+	directory := t.TempDir()
+	databasePath := filepath.Join(directory, "runs.db")
+	db, err := store.OpenSQLite(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = db.Close()
+		}
+	}()
+	if err := db.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	patchText := "--- a/bug.go\n+++ b/bug.go\n@@ -1 +1 @@ " + canary + "\n-old\n+" +
+		strings.Repeat("x", 12<<10) + "\n"
+	patchArgs, err := json.Marshal(map[string]string{"patch": patchText})
+	if err != nil {
 		t.Fatal(err)
 	}
 	patch := domain.Action{
 		Kind: "apply_patch",
-		Args: json.RawMessage(`{ "patch" : "--- a/bug.go\n+++ b/bug.go\n@@ -1 +1 @@\n-old\n+OPENAI_API_KEY=super-secret-value\n" }`),
+		Args: patchArgs,
 	}
 	baselines := map[string]string{"baseline_diff_hash": "diff-2", "baseline_commit": "commit-1"}
 	loop := agent.New(agent.Dependencies{
-		Store: mem, Provider: provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
+		Store: db, Provider: provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
 			return provider.Response{Decision: decision(patch)}, nil
 		}), Actions: &countingRunner{}, Policy: policy.NewEngine(),
 		Baselines: baselines, Feedback: feedback.Pipeline{}, Validation: &checks{},
-		Budget: budget.New(budget.Limits{MaxDecisions: 2, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute}, fixedClock{}),
+		ApprovalRedactor: feedback.NewRedactor([]string{canary}),
+		Budget:           budget.New(budget.Limits{MaxDecisions: 2, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute}, fixedClock{}),
 	})
 
 	if _, err := loop.Run(context.Background(), run); err != nil {
 		t.Fatal(err)
 	}
-	events, err := mem.ListEvents(context.Background(), run.ID, 1)
+	events, err := db.ListEvents(context.Background(), run.ID, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,8 +218,19 @@ func TestApprovalRequiredPublishesRedactedBoundProductionRequest(t *testing.T) {
 	if request.Digest != policy.Digest(run.ID, run.Profile, patch, baselines) {
 		t.Fatalf("digest = %q", request.Digest)
 	}
-	if request.Action.Kind != "apply_patch" || string(request.Action.Args) !=
-		`{"patch":"--- a/bug.go\n+++ b/bug.go\n@@ -1 +1 @@\n-old\n+OPENAI_API_KEY=[REDACTED]\n"}` {
+	var display struct {
+		Patch struct {
+			SHA256    string `json:"sha256"`
+			Preview   string `json:"preview"`
+			Truncated bool   `json:"truncated"`
+		} `json:"patch"`
+	}
+	if err := json.Unmarshal(request.Action.Args, &display); err != nil {
+		t.Fatal(err)
+	}
+	if request.Action.Kind != "apply_patch" || display.Patch.SHA256 == "" ||
+		!display.Patch.Truncated || !strings.Contains(display.Patch.Preview, "[REDACTED]") ||
+		strings.Contains(display.Patch.Preview, "+xxxxxxxx") {
 		t.Fatalf("canonical redacted action = %#v", request.Action)
 	}
 	if len(request.AffectedFiles) != 1 || request.AffectedFiles[0] != "bug.go" {
@@ -212,9 +245,26 @@ func TestApprovalRequiredPublishesRedactedBoundProductionRequest(t *testing.T) {
 		request.BaselineEvidence[1].Name != "baseline_diff_hash" {
 		t.Fatalf("baseline evidence = %#v", request.BaselineEvidence)
 	}
-	raw := string(events[len(events)-1].Payload)
-	if strings.Contains(raw, "super-secret-value") {
+	raw := events[len(events)-1].Payload
+	if bytes.Contains(raw, []byte(canary)) || len(raw) > 8<<10 {
 		t.Fatalf("approval event leaked a secret: %s", raw)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	closed = true
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		persisted, err := os.ReadFile(filepath.Join(directory, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(persisted, []byte(canary)) {
+			t.Fatalf("SQLite file %q contains approval canary", entry.Name())
+		}
 	}
 }
 

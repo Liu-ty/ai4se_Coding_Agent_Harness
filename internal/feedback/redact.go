@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 var secretPatterns = []*regexp.Regexp{
@@ -15,12 +16,39 @@ var secretPatterns = []*regexp.Regexp{
 }
 
 type Redactor struct {
+	state *redactorState
+}
+
+type redactorState struct {
+	mu      sync.RWMutex
 	secrets []string
 }
 
 func NewRedactor(secrets []string) Redactor {
-	copied := make([]string, 0, len(secrets)*2)
-	seen := make(map[string]struct{}, len(secrets)*2)
+	redactor := Redactor{state: &redactorState{}}
+	for _, secret := range secrets {
+		redactor.Register(secret)
+	}
+	return redactor
+}
+
+// Register adds a runtime-known secret. Copies of a Redactor created by
+// NewRedactor share this registry, so composition can inject one redaction
+// boundary into HTTP, app, and agent components.
+func (r *Redactor) Register(secret string) {
+	if secret == "" {
+		return
+	}
+	if r.state == nil {
+		r.state = &redactorState{}
+	}
+	r.state.mu.Lock()
+	defer r.state.mu.Unlock()
+	copied := append([]string(nil), r.state.secrets...)
+	seen := make(map[string]struct{}, len(copied)+2)
+	for _, existing := range copied {
+		seen[existing] = struct{}{}
+	}
 	add := func(secret string) {
 		if secret == "" {
 			return
@@ -31,19 +59,23 @@ func NewRedactor(secrets []string) Redactor {
 		seen[secret] = struct{}{}
 		copied = append(copied, secret)
 	}
-	for _, secret := range secrets {
-		add(secret)
-		encoded, err := json.Marshal(secret)
-		if err == nil && len(encoded) >= 2 {
-			add(string(encoded[1 : len(encoded)-1]))
-		}
+	add(secret)
+	encoded, err := json.Marshal(secret)
+	if err == nil && len(encoded) >= 2 {
+		add(string(encoded[1 : len(encoded)-1]))
 	}
 	sort.Slice(copied, func(i, j int) bool { return len(copied[i]) > len(copied[j]) })
-	return Redactor{secrets: copied}
+	r.state.secrets = copied
 }
 
 func (r Redactor) Redact(text string) string {
-	for _, secret := range r.secrets {
+	var secrets []string
+	if r.state != nil {
+		r.state.mu.RLock()
+		secrets = append(secrets, r.state.secrets...)
+		r.state.mu.RUnlock()
+	}
+	for _, secret := range secrets {
 		text = strings.ReplaceAll(text, secret, "[REDACTED]")
 	}
 	text = secretPatterns[0].ReplaceAllString(text, `$1=[REDACTED]`)

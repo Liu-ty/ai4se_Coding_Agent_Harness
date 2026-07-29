@@ -88,26 +88,26 @@ type Options struct {
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
 	Secrets           []string
+	Redactor          *feedback.Redactor
 	Random            io.Reader
 	AppShell          http.Handler
 }
 
 type Router struct {
-	application      Application
-	store            Store
-	credentials      CredentialService
-	capabilities     Capabilities
-	local            bool
-	host             string
-	maxBody          int64
-	heartbeat        time.Duration
-	poll             time.Duration
-	random           io.Reader
-	randomMu         sync.Mutex
-	redactorMu       sync.RWMutex
-	redactor         feedback.Redactor
-	redactionSecrets []string
-	appShell         http.Handler
+	application  Application
+	store        Store
+	credentials  CredentialService
+	capabilities Capabilities
+	local        bool
+	host         string
+	maxBody      int64
+	heartbeat    time.Duration
+	poll         time.Duration
+	random       io.Reader
+	randomMu     sync.Mutex
+	redactorMu   sync.RWMutex
+	redactor     feedback.Redactor
+	appShell     http.Handler
 
 	bootstrapToken string
 	sessionToken   string
@@ -141,10 +141,9 @@ func NewLocal(options Options) (*Router, error) {
 		secureEqual(router.sessionToken, router.csrfToken) {
 		return nil, errors.New("httpapi: random security tokens collided")
 	}
-	secrets := append([]string(nil), options.Secrets...)
-	secrets = append(secrets, router.bootstrapToken, router.sessionToken, router.csrfToken)
-	router.redactor = feedback.NewRedactor(secrets)
-	router.redactionSecrets = secrets
+	router.registerSecret(router.bootstrapToken)
+	router.registerSecret(router.sessionToken)
+	router.registerSecret(router.csrfToken)
 	return router, nil
 }
 
@@ -181,14 +180,20 @@ func newRouter(options Options, local bool) (*Router, error) {
 	if random == nil {
 		random = cryptoRandomReader{}
 	}
+	redactor := feedback.NewRedactor(options.Secrets)
+	if options.Redactor != nil {
+		for _, secret := range options.Secrets {
+			options.Redactor.Register(secret)
+		}
+		redactor = *options.Redactor
+	}
 	return &Router{
 		application: options.Application, store: options.Store,
 		credentials: options.Credentials, capabilities: cloneCapabilities(options.Capabilities),
 		local: local, host: strings.ToLower(options.Host), maxBody: bodyLimit,
 		heartbeat: heartbeat, poll: poll, random: random,
-		redactor:         feedback.NewRedactor(options.Secrets),
-		redactionSecrets: append([]string(nil), options.Secrets...),
-		appShell:         options.AppShell,
+		redactor: redactor,
+		appShell: options.AppShell,
 	}, nil
 }
 
@@ -467,8 +472,7 @@ func (r *Router) registerSecret(secret string) {
 		return
 	}
 	r.redactorMu.Lock()
-	r.redactionSecrets = append(r.redactionSecrets, secret)
-	r.redactor = feedback.NewRedactor(r.redactionSecrets)
+	r.redactor.Register(secret)
 	r.redactorMu.Unlock()
 }
 

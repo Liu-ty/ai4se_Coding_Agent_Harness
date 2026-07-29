@@ -1341,9 +1341,16 @@ cannot expose or skip entries because hidden local runs are interleaved.
 
 Production `ApprovalRequired` events use the exact stable DTO
 `{"digest":"...","action":{"kind":"...","args":{...}},"affected_files":["..."],"risk":"NORMAL|GUARDED","risk_reason":"...","baseline_evidence":[{"name":"baseline_commit","digest":"..."}]}`.
-The digest binds the exact unredacted canonical request; the published action
-and reason are redacted for operator display, and baseline evidence is sorted
-by name.
+The digest binds the exact unredacted canonical request. Mutation action
+arguments are display-only bounded representations: patch/content values are
+`{"sha256":"...","preview":"...","truncated":true|false}` with at most 2 KiB
+of preview; patch previews contain only redacted hunk headers, never changed
+lines or a complete patch. Paths, reasons, and evidence fields are separately bounded.
+The app and HTTP compositions inject one concurrency-safe central redactor into
+the agent loop; runtime credential registration updates that shared known-secret
+set. Published fields are redacted before persistence, affected files and
+baseline evidence remain available and sorted, and a complete arbitrary patch
+or file body is never written to the approval event.
 
 Errors use the exact envelope shape `{"error":{"code":"INVALID_JSON","message":"request body is not valid JSON","request_id":"req-123"}}`; messages are redacted and bounded.
 

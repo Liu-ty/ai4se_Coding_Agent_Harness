@@ -16,6 +16,7 @@ import (
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/app"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/credentials"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/feedback"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/httpapi"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/store"
 )
@@ -531,7 +532,8 @@ func TestSSEHeartbeatAndMalformedLastEventID(t *testing.T) {
 
 func TestCredentialMutationCanaryIsRedactedFromLaterEvents(t *testing.T) {
 	const submittedSecret = "ordinary-credential-value-987654321"
-	api, _, st := newLocalAPI(t)
+	centralRedactor := feedback.NewRedactor(nil)
+	api, _, st := newLocalAPIWithRedactor(t, &centralRedactor)
 	cookie := bootstrap(t, api)
 	put := authorizedRequest(
 		api, cookie, http.MethodPut,
@@ -563,6 +565,9 @@ func TestCredentialMutationCanaryIsRedactedFromLaterEvents(t *testing.T) {
 	body := writer.String()
 	if strings.Contains(body, submittedSecret) || !strings.Contains(body, "[REDACTED]") {
 		t.Fatalf("submitted credential leaked through event: %s", body)
+	}
+	if got := centralRedactor.Redact(submittedSecret); got != "[REDACTED]" {
+		t.Fatalf("runtime secret was not registered centrally: %q", got)
 	}
 }
 
@@ -657,12 +662,31 @@ func TestHealthzIsPublicAndCORSIsNeverEnabled(t *testing.T) {
 
 func newLocalAPI(t *testing.T) (*httpapi.Router, *fakeApplication, *store.MemoryStore) {
 	t.Helper()
-	return newLocalAPIWithCredentials(t, credentials.NewService(credentials.NewMemoryStore(), nil))
+	return newLocalAPIWithRedactor(t, nil)
+}
+
+func newLocalAPIWithRedactor(
+	t *testing.T,
+	redactor *feedback.Redactor,
+) (*httpapi.Router, *fakeApplication, *store.MemoryStore) {
+	t.Helper()
+	return newLocalAPIWithCredentialsAndRedactor(
+		t, credentials.NewService(credentials.NewMemoryStore(), nil), redactor,
+	)
 }
 
 func newLocalAPIWithCredentials(
 	t *testing.T,
 	credentialAPI *credentials.Service,
+) (*httpapi.Router, *fakeApplication, *store.MemoryStore) {
+	t.Helper()
+	return newLocalAPIWithCredentialsAndRedactor(t, credentialAPI, nil)
+}
+
+func newLocalAPIWithCredentialsAndRedactor(
+	t *testing.T,
+	credentialAPI *credentials.Service,
+	redactor *feedback.Redactor,
 ) (*httpapi.Router, *fakeApplication, *store.MemoryStore) {
 	t.Helper()
 	application := &fakeApplication{}
@@ -680,6 +704,7 @@ func newLocalAPIWithCredentials(
 		HeartbeatInterval: 5 * time.Millisecond,
 		PollInterval:      2 * time.Millisecond,
 		Secrets:           []string{canarySecret},
+		Redactor:          redactor,
 		Random:            bytes.NewReader(deterministicRandomBytes(4096)),
 	})
 	if err != nil {

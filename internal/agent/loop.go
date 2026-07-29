@@ -48,6 +48,9 @@ type Dependencies struct {
 	Approvals  *policy.ApprovalStore
 	Context    ContextAssembler
 	Baselines  map[string]string
+	// ApprovalRedactor is the shared runtime redaction boundary used before
+	// durable approval display data is written.
+	ApprovalRedactor feedback.Redactor
 }
 type pendingApproval struct {
 	run    domain.Run
@@ -75,6 +78,12 @@ func (l *Loop) BindBaselines(baselines map[string]string) {
 	}
 	l.mu.Lock()
 	l.d.Baselines = copyOfBaselines
+	l.mu.Unlock()
+}
+
+func (l *Loop) BindApprovalRedactor(redactor feedback.Redactor) {
+	l.mu.Lock()
+	l.d.ApprovalRedactor = redactor
 	l.mu.Unlock()
 }
 
@@ -133,6 +142,7 @@ func (l *Loop) run(ctx context.Context, run domain.Run, last *domain.StructuredF
 		for path, hash := range l.d.Baselines {
 			baselines[path] = hash
 		}
+		approvalRedactor := l.d.ApprovalRedactor
 		l.mu.Unlock()
 		decision := l.d.Policy.Evaluate(policy.Context{
 			RunID: run.ID, Profile: run.Profile, Baselines: baselines,
@@ -148,7 +158,7 @@ func (l *Loop) run(ctx context.Context, run domain.Run, last *domain.StructuredF
 			continue
 		}
 		if decision.Verdict == policy.RequireApproval {
-			request := newApprovalRequired(run.Profile, action, decision, baselines)
+			request := newApprovalRequired(run.Profile, action, decision, baselines, approvalRedactor)
 			pendingRun := run
 			pendingRun.State = domain.StateAwaitingApproval
 			l.mu.Lock()

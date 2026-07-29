@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -28,67 +30,146 @@ type ApprovalEvidenceBinding struct {
 	Digest string `json:"digest"`
 }
 
+const (
+	maxApprovalPreviewBytes = 2048
+	maxApprovalTextBytes    = 512
+	maxApprovalEvidence     = 16
+	maxApprovalFiles        = 16
+)
+
+type approvalContentDisplay struct {
+	SHA256    string `json:"sha256"`
+	Preview   string `json:"preview"`
+	Truncated bool   `json:"truncated"`
+}
+
 func newApprovalRequired(
 	profile domain.PermissionProfile,
 	action domain.Action,
 	decision policy.Decision,
 	baselines map[string]string,
+	redactor feedback.Redactor,
 ) ApprovalRequired {
-	redactor := feedback.NewRedactor(nil)
-	canonical := canonicalRedactedAction(action, redactor)
-	evidence := make([]ApprovalEvidenceBinding, 0, len(baselines))
+	displayAction := boundedRedactedAction(action, redactor)
+	evidence := make([]ApprovalEvidenceBinding, 0, min(len(baselines), maxApprovalEvidence))
 	for name, digest := range baselines {
 		evidence = append(evidence, ApprovalEvidenceBinding{
-			Name: redactor.Redact(name), Digest: redactor.Redact(digest),
+			Name:   boundedRedacted(name, maxApprovalTextBytes, redactor),
+			Digest: boundedRedacted(digest, maxApprovalTextBytes, redactor),
 		})
 	}
 	sort.Slice(evidence, func(i, j int) bool { return evidence[i].Name < evidence[j].Name })
+	if len(evidence) > maxApprovalEvidence {
+		evidence = evidence[:maxApprovalEvidence]
+	}
 	reason := decision.Message
 	if reason == "" {
 		reason = string(profile) + " profile requires approval for " + action.Kind
 	}
 	files := affectedFiles(action)
+	if len(files) > maxApprovalFiles {
+		files = files[:maxApprovalFiles]
+	}
 	for index, path := range files {
-		files[index] = redactor.Redact(path)
+		files[index] = boundedRedacted(path, maxApprovalTextBytes, redactor)
 	}
 	return ApprovalRequired{
 		Digest:           decision.Digest,
-		Action:           canonical,
+		Action:           displayAction,
 		AffectedFiles:    files,
 		Risk:             decision.Risk,
-		RiskReason:       redactor.Redact(reason),
+		RiskReason:       boundedRedacted(reason, maxApprovalTextBytes, redactor),
 		BaselineEvidence: evidence,
 	}
 }
 
-func canonicalRedactedAction(action domain.Action, redactor feedback.Redactor) domain.Action {
+func boundedRedactedAction(action domain.Action, redactor feedback.Redactor) domain.Action {
 	action = policy.CanonicalAction(action)
-	var value any
-	if json.Unmarshal(action.Args, &value) != nil {
-		return domain.Action{Kind: action.Kind, Args: json.RawMessage(`{}`)}
+	var args map[string]json.RawMessage
+	if json.Unmarshal(action.Args, &args) != nil {
+		return summarizedAction(action, redactor)
 	}
-	value = redactJSONValue(value, redactor)
-	raw, err := json.Marshal(value)
+	var display any
+	switch action.Kind {
+	case "apply_patch":
+		var patch string
+		if json.Unmarshal(args["patch"], &patch) != nil {
+			return summarizedAction(action, redactor)
+		}
+		display = map[string]any{"patch": patchDisplay(patch, redactor)}
+	case "create_file":
+		var path, content string
+		if json.Unmarshal(args["path"], &path) != nil ||
+			json.Unmarshal(args["content"], &content) != nil {
+			return summarizedAction(action, redactor)
+		}
+		display = map[string]any{
+			"path":    boundedRedacted(path, maxApprovalTextBytes, redactor),
+			"content": contentDisplay(content, redactor),
+		}
+	case "run_check":
+		var id string
+		if json.Unmarshal(args["id"], &id) != nil {
+			return summarizedAction(action, redactor)
+		}
+		display = map[string]string{"id": boundedRedacted(id, maxApprovalTextBytes, redactor)}
+	default:
+		return summarizedAction(action, redactor)
+	}
+	raw, err := json.Marshal(display)
 	if err != nil {
 		return domain.Action{Kind: action.Kind, Args: json.RawMessage(`{}`)}
 	}
 	return domain.Action{Kind: action.Kind, Args: raw}
 }
 
-func redactJSONValue(value any, redactor feedback.Redactor) any {
-	switch typed := value.(type) {
-	case string:
-		return redactor.Redact(typed)
-	case []any:
-		for index, nested := range typed {
-			typed[index] = redactJSONValue(nested, redactor)
-		}
-	case map[string]any:
-		for key, nested := range typed {
-			typed[key] = redactJSONValue(nested, redactor)
+func summarizedAction(action domain.Action, redactor feedback.Redactor) domain.Action {
+	raw, err := json.Marshal(map[string]any{
+		"summary": contentDisplay(string(action.Args), redactor),
+	})
+	if err != nil {
+		raw = json.RawMessage(`{}`)
+	}
+	return domain.Action{Kind: action.Kind, Args: raw}
+}
+
+func contentDisplay(value string, redactor feedback.Redactor) approvalContentDisplay {
+	sum := sha256.Sum256([]byte(value))
+	redacted := redactor.Redact(value)
+	preview := bounded(redacted, maxApprovalPreviewBytes)
+	return approvalContentDisplay{
+		SHA256:    fmt.Sprintf("%x", sum[:]),
+		Preview:   preview,
+		Truncated: len(redacted) > len(preview),
+	}
+}
+
+func patchDisplay(patch string, redactor feedback.Redactor) approvalContentDisplay {
+	hunks := make([]string, 0)
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, "@@ ") {
+			hunks = append(hunks, line)
 		}
 	}
-	return value
+	sum := sha256.Sum256([]byte(patch))
+	redacted := redactor.Redact(strings.Join(hunks, "\n"))
+	preview := bounded(redacted, maxApprovalPreviewBytes)
+	return approvalContentDisplay{
+		SHA256:    fmt.Sprintf("%x", sum[:]),
+		Preview:   preview,
+		Truncated: preview != redactor.Redact(patch),
+	}
+}
+
+func boundedRedacted(value string, limit int, redactor feedback.Redactor) string {
+	return bounded(redactor.Redact(value), limit)
+}
+
+func bounded(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	return value[:limit]
 }
 
 func affectedFiles(action domain.Action) []string {
