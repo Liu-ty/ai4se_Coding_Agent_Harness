@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 const bootstrapToken = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
 const localURL = "http://127.0.0.1:4174";
 const demoURL = "http://127.0.0.1:4175";
+const approvalCanary = "quartz-orchid-7429";
 
 async function expectNoSeriousAxeFindings(page: Page) {
   const results = await new AxeBuilder({ page }).analyze();
@@ -49,6 +50,7 @@ async function fillRunWithKeyboard(page: Page, repoRoot: string, task: string) {
   await page.keyboard.press("Enter");
   await expect(page.getByText("Preflight passed. Run creation is available.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Create run" })).toBeEnabled();
+  await expectNoSeriousAxeFindings(page);
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Create run" })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -68,6 +70,20 @@ test("authenticated Go httpapi composition supports the complete supervised work
   await expect(page.getByRole("img", { name: "Run state distribution" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Live activity" })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
+  const credentialPutStatus = await page.evaluate(async (secret) => {
+    const runtime = window.__AI4SE_RUNTIME__;
+    const response = await fetch("/api/v1/credentials/openai/api.openai.com", {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": runtime?.csrfToken ?? "",
+      },
+      body: JSON.stringify({ secret }),
+    });
+    return response.status;
+  }, approvalCanary);
+  expect(credentialPutStatus).toBe(204);
 
   const invalidCSRF = await page.evaluate(async () => {
     const response = await fetch("/api/v1/config/validate", {
@@ -90,13 +106,40 @@ test("authenticated Go httpapi composition supports the complete supervised work
   await expect(page.getByRole("button", { name: /New Run/ })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "New Run" })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
   await fillRunWithKeyboard(page, repoRoot, "Repair the failing deterministic check");
   await expect(page.getByRole("heading", { name: "run-created-1" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Approval required" })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
   await expect(page.getByText("Timestamp unavailable")).toHaveCount(0);
   await expect(page.getByText("apply_patch", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Approval required" }).locator(".."))
-    .toContainText("Affected files: a.txt");
+    .toContainText("Affected files: [REDACTED].txt");
+  await expect(page.locator("body")).not.toContainText(approvalCanary);
+  const storedEvents = await request.get(`${localURL}/e2e/events/run-created-1`);
+  const storedEventBody = await storedEvents.text();
+  expect(storedEventBody).toContain("ApprovalRequired");
+  expect(storedEventBody).toContain("[REDACTED]");
+  expect(storedEventBody).not.toContain(approvalCanary);
+  const streamedEvents = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/runs/run-created-1/events", {
+      credentials: "same-origin",
+    });
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("event stream body is unavailable");
+    const decoder = new TextDecoder();
+    let output = "";
+    while (!output.includes("ApprovalRequired")) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      output += decoder.decode(value, { stream: true });
+    }
+    await reader.cancel();
+    return output;
+  });
+  expect(streamedEvents).toContain("ApprovalRequired");
+  expect(streamedEvents).toContain("[REDACTED]");
+  expect(streamedEvents).not.toContain(approvalCanary);
   await tabToButton(page, "Approve once");
   await expect(page.getByRole("button", { name: "Approve once" })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -120,6 +163,7 @@ test("authenticated Go httpapi composition supports the complete supervised work
 test("Go demo router exposes only fixed SIMULATED data and prunes mutations", async ({ page, request }) => {
   await page.goto(`${demoURL}/`);
   await expect(page.getByRole("heading", { name: "Demo Gallery" })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
   await page.getByRole("button", { name: "Open SIMULATED demo" }).click();
   await expect(page.getByText("POLICY_DENIED")).toBeVisible();
   await expect(page.getByText("TEST_FAILURE")).toBeVisible();

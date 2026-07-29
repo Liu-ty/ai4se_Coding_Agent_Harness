@@ -170,23 +170,29 @@ it.each([
   expect(screen.queryByRole("heading", { name: "Approval required" })).toBeNull();
 });
 
-it("does not let a delayed cancellation of run A overwrite selected run B", async () => {
+it("keeps run B cancellation enabled while run A has a delayed cancellation", async () => {
   let resolveCancel!: (response: Response) => void;
   const cancelResponse = new Promise<Response>((resolve) => { resolveCancel = resolve; });
   const run2 = { ...run, id: "run-2", state: "EXECUTING", task: "Newer selection" };
   const cancelledRun = { ...run, state: "STOPPED" };
+  const cancelledRun2 = { ...run2, state: "STOPPED" };
   let run1Snapshots = 0;
+  let run2Snapshots = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input);
     if (path.includes("?offset=")) return Response.json({
       runs: [run, run2], page: { offset: 0, limit: 50, returned: 2, has_more: false },
     });
     if (path.endsWith("/run-1/cancel")) return cancelResponse;
+    if (path.endsWith("/run-2/cancel")) return new Response(null, { status: 204 });
     if (path.endsWith("/run-1")) {
       run1Snapshots += 1;
       return Response.json(run1Snapshots === 1 ? run : cancelledRun);
     }
-    if (path.endsWith("/run-2")) return Response.json(run2);
+    if (path.endsWith("/run-2")) {
+      run2Snapshots += 1;
+      return Response.json(run2Snapshots === 1 ? run2 : cancelledRun2);
+    }
     if (path.endsWith("/events")) return new Response("");
     throw new Error(`unexpected request ${path}`);
   });
@@ -197,6 +203,10 @@ it("does not let a delayed cancellation of run A overwrite selected run B", asyn
   await userEvent.click(screen.getByRole("button", { name: /Dashboard/ }));
   await userEvent.click(screen.getByRole("button", { name: "run-2" }));
   expect(await screen.findByRole("heading", { name: "run-2" })).toBeVisible();
+  const cancelRun2 = screen.getByRole("button", { name: "Cancel run" });
+  expect(cancelRun2).toBeEnabled();
+  await userEvent.click(cancelRun2);
+  expect(await screen.findByText("STOPPED")).toBeVisible();
   await act(async () => resolveCancel(new Response(null, { status: 204 })));
   expect(screen.getByRole("heading", { name: "run-2" })).toBeVisible();
   expect(screen.queryByRole("heading", { name: "run-1" })).toBeNull();

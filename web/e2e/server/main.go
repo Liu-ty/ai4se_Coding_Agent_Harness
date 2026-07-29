@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	localAddress = "127.0.0.1:4174"
-	demoAddress  = "127.0.0.1:4175"
+	localAddress   = "127.0.0.1:4174"
+	demoAddress    = "127.0.0.1:4175"
+	approvalCanary = "quartz-orchid-7429"
 )
 
 type deterministicReader struct {
@@ -120,6 +121,7 @@ func localRunRequest(root string) app.CreateRunRequest {
 
 func newLocalApplication(
 	dataDir string,
+	redactor *feedback.Redactor,
 ) (*app.Service, *store.MemoryStore, *credentials.Service, error) {
 	target := store.NewMemory()
 	credentialService := credentials.NewService(credentials.NewMemoryStore(), nil)
@@ -142,7 +144,8 @@ func newLocalApplication(
 				action = domain.Action{
 					Kind: "apply_patch",
 					Args: json.RawMessage(
-						`{"patch":"--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"}`,
+						`{"patch":"--- a/` + approvalCanary + `.txt\n+++ b/` +
+							approvalCanary + `.txt\n@@ -1 +1 @@\n-old\n+new\n"}`,
 					),
 				}
 			} else {
@@ -166,7 +169,7 @@ func newLocalApplication(
 	})
 	var runSequence atomic.Uint64
 	application, err := app.NewService(context.Background(), app.Options{
-		Store: target, Loops: app.NewAgentLoopController(factory),
+		Store: target, Loops: app.NewAgentLoopController(factory, *redactor),
 		Credentials: credentialService, DataDir: dataDir,
 		Locks: app.NewRepoLocksAt(filepath.Join(dataDir, "repo-locks")),
 		NewRunID: func() domain.RunID {
@@ -235,8 +238,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	centralRedactor := feedback.NewRedactor(nil)
 	localApp, localStore, credentialService, err := newLocalApplication(
-		filepath.Join(tempRoot, "data"),
+		filepath.Join(tempRoot, "data"), &centralRedactor,
 	)
 	if err != nil {
 		panic(err)
@@ -251,7 +255,7 @@ func main() {
 		Application: localApp, Store: localStore, Credentials: credentialService,
 		Capabilities: httpapi.LocalCapabilities(), Host: localAddress, Random: random,
 		AppShell: localShell, PollInterval: 10 * time.Millisecond,
-		HeartbeatInterval: 100 * time.Millisecond,
+		HeartbeatInterval: 100 * time.Millisecond, Redactor: &centralRedactor,
 	})
 	if err != nil {
 		panic(err)
@@ -268,11 +272,11 @@ func main() {
 		panic(err)
 	}
 
-	localHandler := assetWrapper(dist, localRouter, nil, repoRoot)
+	localHandler := assetWrapper(dist, localRouter, nil, repoRoot, localStore)
 	demoShell := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		serveIndex(writer, index, runtimeScript("", true, []string{"demo-feedback"}))
 	})
-	demoHandler := assetWrapper(dist, demoRouter, demoShell, "")
+	demoHandler := assetWrapper(dist, demoRouter, demoShell, "", nil)
 	go func() {
 		if serveErr := http.ListenAndServe(localAddress, localHandler); serveErr != nil &&
 			!errors.Is(serveErr, http.ErrServerClosed) {
@@ -301,7 +305,13 @@ func seedDemo(target *store.MemoryStore) {
 		json.RawMessage(`{"simulated":true,"category":"SUCCEEDED","summary":"All required checks passed.","reason":"ALL_REQUIRED_CHECKS_PASSED","diff":"--- a/sum.ts\n+++ b/sum.ts\n- return 1\n+ return a + b\n"}`))
 }
 
-func assetWrapper(dist string, api http.Handler, shell http.Handler, repoRoot string) http.Handler {
+func assetWrapper(
+	dist string,
+	api http.Handler,
+	shell http.Handler,
+	repoRoot string,
+	eventStore *store.MemoryStore,
+) http.Handler {
 	files := http.FileServer(http.Dir(dist))
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/healthz" {
@@ -311,6 +321,17 @@ func assetWrapper(dist string, api http.Handler, shell http.Handler, repoRoot st
 		if repoRoot != "" && request.URL.Path == "/e2e/repository" {
 			writer.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(writer).Encode(map[string]string{"repo_root": repoRoot})
+			return
+		}
+		if eventStore != nil && strings.HasPrefix(request.URL.Path, "/e2e/events/") {
+			runID := domain.RunID(strings.TrimPrefix(request.URL.Path, "/e2e/events/"))
+			events, listErr := eventStore.ListEvents(request.Context(), runID, 1)
+			if listErr != nil {
+				http.Error(writer, listErr.Error(), http.StatusInternalServerError)
+				return
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(writer).Encode(events)
 			return
 		}
 		if strings.HasPrefix(request.URL.Path, "/assets/") {

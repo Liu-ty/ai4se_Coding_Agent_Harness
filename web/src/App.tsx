@@ -97,7 +97,10 @@ export function App({ runtimeConfig, apiClient }: {
   const [streamError, setStreamError] = useState<StreamFailure>();
   const [diff, setDiff] = useState<{ content: string; truncated: boolean }>();
   const [actionError, setActionError] = useState("");
-  const [cancelPending, setCancelPending] = useState(false);
+  const [cancelPending, setCancelPending] = useState<{
+    runId: string;
+    selectionGeneration: number;
+  }>();
   const streamRef = useRef<RunEventStream | undefined>(undefined);
   const streamURLRef = useRef("");
   const selectionGenerationRef = useRef(0);
@@ -106,6 +109,7 @@ export function App({ runtimeConfig, apiClient }: {
   const navigate = useCallback((next: Page) => {
     if (next !== "run-detail") {
       selectionGenerationRef.current += 1;
+      setCancelPending(undefined);
       streamRef.current?.stop();
       streamRef.current = undefined;
       streamURLRef.current = "";
@@ -164,6 +168,7 @@ export function App({ runtimeConfig, apiClient }: {
 
   const openRun = useCallback(async (runId: string) => {
     const selectionGeneration = ++selectionGenerationRef.current;
+    setCancelPending(undefined);
     streamRef.current?.stop();
     setDetailLoading(true);
     setSelected(undefined);
@@ -242,7 +247,7 @@ export function App({ runtimeConfig, apiClient }: {
     if (!selected) return;
     const runId = selected.id;
     const selectionGeneration = selectionGenerationRef.current;
-    setCancelPending(true);
+    setCancelPending({ runId, selectionGeneration });
     setActionError("");
     try {
       await client.cancel(runId);
@@ -253,7 +258,7 @@ export function App({ runtimeConfig, apiClient }: {
         setActionError(error instanceof Error ? error.message : "Cancellation failed.");
       }
     } finally {
-      if (selectionGeneration === selectionGenerationRef.current) setCancelPending(false);
+      if (selectionGeneration === selectionGenerationRef.current) setCancelPending(undefined);
     }
   };
 
@@ -308,7 +313,8 @@ export function App({ runtimeConfig, apiClient }: {
         simulated={runtime.capabilities.demo} connection={connection} diff={diff}
         approval={approval} onDecision={decide}
         onCancel={runtime.capabilities.cancelRuns ? () => void cancel() : undefined}
-        cancelPending={cancelPending} error={actionError}
+        cancelPending={cancelPending?.runId === selected.id &&
+          cancelPending.selectionGeneration === selectionGenerationRef.current} error={actionError}
         streamError={streamError} onReconnect={reconnect} />}
     </main></div>
   </div>;
