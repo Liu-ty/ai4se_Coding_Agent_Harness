@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -90,6 +91,13 @@ func TestWaitForTerminalKeepsRuntimeAliveUntilTheRunStops(t *testing.T) {
 	}
 	if application.reads != 3 {
 		t.Fatalf("reads = %d, want 3", application.reads)
+	}
+}
+
+func TestWaitForTerminalReturnsApprovalHandoff(t *testing.T) {
+	application := &terminalAfterReads{states: []domain.RunState{domain.StateAwaitingApproval}}
+	if err := waitForTerminal(t.Context(), application, "run"); !errors.Is(err, ErrRunAwaitingApproval) {
+		t.Fatalf("error = %v", err)
 	}
 }
 

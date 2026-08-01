@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 )
+
+var ErrRunAwaitingApproval = errors.New("run is awaiting approval; continue it through the local server")
 
 func runCommand(args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -45,6 +48,9 @@ func waitForTerminal(ctx context.Context, application interface {
 		run, err := application.GetRun(ctx, runID)
 		if err != nil {
 			return err
+		}
+		if run.State == domain.StateAwaitingApproval {
+			return ErrRunAwaitingApproval
 		}
 		if run.State == domain.StateSucceeded || run.State == domain.StateReviewComplete || run.State == domain.StateStopped {
 			return nil

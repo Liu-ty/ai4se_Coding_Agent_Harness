@@ -35,3 +35,19 @@ func TestRunFeedbackLoopProducesTheFixedMechanismSequence(t *testing.T) {
 		t.Fatalf("patch digests must differ: %q", result.Actions[1].Digest)
 	}
 }
+
+func TestCompositionRegistersOnlyInMemoryDemoExecutor(t *testing.T) {
+	composition, err := NewComposition(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if composition.provider == nil {
+		t.Fatal("missing scripted provider")
+	}
+	if len(composition.executors) != 1 {
+		t.Fatalf("executors = %#v", composition.executors)
+	}
+	if _, ok := composition.executors["apply_patch"].(*inMemoryExecutor); !ok {
+		t.Fatalf("executor = %T", composition.executors["apply_patch"])
+	}
+}

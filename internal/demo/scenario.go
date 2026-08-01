@@ -91,7 +91,7 @@ type inMemoryExecutor struct {
 	store *Composition
 }
 
-func (e inMemoryExecutor) Execute(ctx context.Context, action domain.Action) (agent.ActionResult, error) {
+func (e *inMemoryExecutor) Execute(ctx context.Context, action domain.Action) (agent.ActionResult, error) {
 	if action.Kind != "apply_patch" {
 		return agent.ActionResult{}, fmt.Errorf("demo: unsupported executable action %q", action.Kind)
 	}

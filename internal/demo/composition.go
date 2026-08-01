@@ -22,6 +22,8 @@ type Composition struct {
 	store     *store.MemoryStore
 	router    *httpapi.Router
 	workspace map[string]string
+	provider  *scriptedProvider
+	executors map[string]agent.ActionExecutor
 	result    Result
 }
 
@@ -48,9 +50,10 @@ func (c *Composition) run(ctx context.Context) error {
 	if err := c.store.CreateRun(ctx, run); err != nil {
 		return err
 	}
-	provider := newScriptedProvider()
+	c.provider = newScriptedProvider()
+	c.executors = map[string]agent.ActionExecutor{"apply_patch": &inMemoryExecutor{store: c}}
 	loop := agent.New(agent.Dependencies{
-		Store: c.store, Provider: provider, Actions: inMemoryExecutor{store: c},
+		Store: c.store, Provider: c.provider, Actions: demoActions{executors: c.executors},
 		Policy: policy.NewEngine(), Feedback: feedback.Pipeline{}, Validation: &deterministicValidator{},
 		Budget: budget.New(budget.Limits{MaxDecisions: 4, MaxMutations: 2, MaxProtocolRepairs: 1, WallClock: time.Hour}, wallClock{}),
 	})
@@ -73,8 +76,20 @@ func (c *Composition) run(ctx context.Context) error {
 			}
 		}
 	}
-	c.result = Result{State: result.State, Actions: provider.RecordedActions(), Events: mechanism}
+	c.result = Result{State: result.State, Actions: c.provider.RecordedActions(), Events: mechanism}
 	return nil
+}
+
+type demoActions struct {
+	executors map[string]agent.ActionExecutor
+}
+
+func (a demoActions) Execute(ctx context.Context, action domain.Action) (agent.ActionResult, error) {
+	executor := a.executors[action.Kind]
+	if executor == nil {
+		return agent.ActionResult{}, errors.New("demo: action is not registered")
+	}
+	return executor.Execute(ctx, action)
 }
 
 func (c *Composition) Result() Result       { return c.result }
