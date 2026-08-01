@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Foundation PR #1 is merged at `6cad5d1`, `config-store-budget` PR #2 is merged at `712f257`, and `policy-tools` PR #3 is merged at `b4cab7c`. Executor-feedback PR #4 was merged early at `085933e`; its remediation PR #6 was subsequently reviewed and merged at `16e982c` with final head `790e38c`. All three inherited PR #4 threads and all five PR #6 threads are resolved. Duplicate Draft PR #5 is closed as superseded with its head branch retained. Tasks 1-16 are complete. Tasks 15-16 were merged through PR #11 at `10e99a8` with final head `7b78afc` after all CodeRabbit threads and required checks were resolved; Task 17 has not started.
+**Status:** Foundation PR #1 is merged at `6cad5d1`, `config-store-budget` PR #2 is merged at `712f257`, and `policy-tools` PR #3 is merged at `b4cab7c`. Executor-feedback PR #4 was merged early at `085933e`; its remediation PR #6 was subsequently reviewed and merged at `16e982c` with final head `790e38c`. All three inherited PR #4 threads and all five PR #6 threads are resolved. Duplicate Draft PR #5 is closed as superseded with its head branch retained. Tasks 1-17 are complete. Tasks 15-16 were merged through PR #11 at `10e99a8` with final head `7b78afc` after all CodeRabbit threads and required checks were resolved; Task 17 is complete on `codex/demo-release`, including the approval-lifecycle correction at `386b36e`.
 
 PR #4's early merge remains an auditable process deviation rather than being rewritten as a normal review closure. PR #6 repaired the three inherited review gaps, added Windows/Linux runtime CI and unsupported-platform rejection gates, and incorporated all follow-up output-drain, cleanup, credential-persistence, and documentation findings. Before merge, fresh Windows verification passed, both required GitHub Actions checks were green, CodeRabbit completed its final review, and every PR #6 thread was resolved. On 2026-07-28, each legacy PR #4 thread received a closure reply linking the remediation evidence and was then resolved. PR #5 contained no unique changes beyond the superseded PR #4 head and was closed without deleting its branch.
 
@@ -1545,6 +1545,8 @@ Expected: tests PASS; JSON terminal state is `SUCCEEDED` with ordered mechanism 
 git add cmd internal/demo internal/httpapi/web.go AGENT_LOG.md go.mod go.sum
 git commit -m "feat: ship local CLI and mock mechanism demo"
 ```
+
+**Post-review lifecycle remediation (`386b36e`):** The `run` command now retains the creating runtime when a run reaches `AWAITING_APPROVAL`, exposes that exact service/controller through a temporary authenticated loopback API, and closes the server only after terminal state. The approval window is bounded by `--approval-timeout` (15 minutes by default); timeout, caller cancellation, and server failure stop the owned run before SQLite teardown. A SQLite-backed real-loop regression bootstraps the local shell, obtains its injected CSRF runtime configuration, approves through the production HTTP route, and requires the same run to reach `SUCCEEDED`. A second regression proves timeout persists `STOPPED` and releases the listener.
 
 ---
 
