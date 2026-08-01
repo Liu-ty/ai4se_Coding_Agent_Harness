@@ -1,0 +1,40 @@
+services:
+  demo:
+    image: ghcr.io/liu-ty/ai4se_coding_agent_harness:${AI4SE_IMAGE_TAG:-latest}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.5
+    expose:
+      - "8080"
+    restart: unless-stopped
+    networks:
+      - private
+
+  caddy:
+    image: caddy:2.10-alpine
+    depends_on:
+      - demo
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    networks:
+      - private
+
+networks:
+  private:
+
+volumes:
+  caddy_data:
+  caddy_config:

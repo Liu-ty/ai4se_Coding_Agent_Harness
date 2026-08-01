@@ -1,0 +1,15 @@
+.git
+.superpowers
+.codex-go-cache
+.codex-go-modcache
+web/node_modules
+web/test-results
+web/playwright-report
+dist
+coverage
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
