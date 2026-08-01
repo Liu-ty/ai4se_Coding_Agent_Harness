@@ -144,6 +144,9 @@ func NewLocal(options Options) (*Router, error) {
 	router.registerSecret(router.bootstrapToken)
 	router.registerSecret(router.sessionToken)
 	router.registerSecret(router.csrfToken)
+	if router.appShell != nil {
+		router.appShell = localRuntimeWebHandler(router.appShell, router.csrfToken, router.capabilities)
+	}
 	return router, nil
 }
 

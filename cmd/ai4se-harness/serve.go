@@ -54,13 +54,17 @@ func serveLocal(ctx context.Context, repo, address string, output io.Writer) err
 		return err
 	}
 	defer runtime.Close()
-	router, err := httpapi.NewLocal(httpapi.Options{
-		Application: runtime.Application, Store: runtime.Store, Credentials: runtime.Credentials,
-		Capabilities: httpapi.LocalCapabilities(), AppShell: httpapi.WebHandler(), Host: address,
-	})
+	router, err := newLocalRouter(runtime, address)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(output, "local listening on http://%s/?bootstrap=%s\n", address, router.BootstrapToken())
 	return http.ListenAndServe(address, router)
+}
+
+func newLocalRouter(runtime *localRuntime, address string) (*httpapi.Router, error) {
+	return httpapi.NewLocal(httpapi.Options{
+		Application: runtime.Application, Store: runtime.Store, Credentials: runtime.Credentials,
+		Capabilities: httpapi.LocalCapabilities(), AppShell: httpapi.WebHandler(), Host: address,
+	})
 }

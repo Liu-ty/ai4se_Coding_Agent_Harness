@@ -22,7 +22,7 @@ func run(ctx context.Context, args []string, output, errors io.Writer) error {
 	case "serve":
 		return serve(ctx, args[1:], output)
 	case "run":
-		return runCommand(args[1:], output)
+		return runCommand(ctx, args[1:], output)
 	case "credentials":
 		return credentialsCommand(ctx, args[1:], output, errors)
 	case "demo":
