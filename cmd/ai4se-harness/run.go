@@ -1,10 +1,10 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
-	"os"
 )
 
 func runCommand(args []string, output io.Writer) error {
@@ -19,12 +19,15 @@ func runCommand(args []string, output io.Writer) error {
 	if *repo == "" || *task == "" {
 		return fmt.Errorf("run requires --repo and --task")
 	}
-	if _, err := os.Stat(*repo); err != nil {
-		return fmt.Errorf("run repository: %w", err)
+	runtime, err := newLocalRuntime(context.Background(), *repo, localRuntimeOptions{})
+	if err != nil {
+		return fmt.Errorf("local composition: %w", err)
 	}
-	if _, err := os.Stat(*config); err != nil {
-		return fmt.Errorf("run config: %w", err)
+	defer runtime.Close()
+	run, err := runtime.Application.CreateRun(context.Background(), localRunRequest(*repo, *task, *config))
+	if err != nil {
+		return err
 	}
-	_, err := fmt.Fprintf(output, "run accepted for %s\n", *repo)
+	_, err = fmt.Fprintf(output, "run created: %s\n", run.ID)
 	return err
 }

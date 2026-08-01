@@ -2,19 +2,14 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 
-	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/app"
-	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/credentials"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/demo"
-	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/httpapi"
-	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/store"
 )
 
 func serve(ctx context.Context, args []string, output io.Writer) error {
@@ -47,17 +42,20 @@ func serve(ctx context.Context, args []string, output io.Writer) error {
 		if info, err := os.Stat(*repo); err != nil || !info.IsDir() {
 			return fmt.Errorf("local repository is not a directory")
 		}
-		return serveLocal(*address, output)
+		return serveLocal(ctx, *repo, *address, output)
 	default:
 		return fmt.Errorf("profile must be local or demo")
 	}
 }
 
-func serveLocal(address string, output io.Writer) error {
-	application := localApplication{store: store.NewMemory()}
+func serveLocal(ctx context.Context, repo, address string, output io.Writer) error {
+	runtime, err := newLocalRuntime(ctx, repo, localRuntimeOptions{})
+	if err != nil {
+		return err
+	}
+	defer runtime.Close()
 	router, err := httpapi.NewLocal(httpapi.Options{
-		Application: &application, Store: application.store,
-		Credentials:  credentials.NewService(credentials.NewKeyringStore(), nil),
+		Application: runtime.Application, Store: runtime.Store, Credentials: runtime.Credentials,
 		Capabilities: httpapi.LocalCapabilities(), AppShell: httpapi.WebHandler(), Host: address,
 	})
 	if err != nil {
@@ -65,25 +63,4 @@ func serveLocal(address string, output io.Writer) error {
 	}
 	fmt.Fprintf(output, "local listening on http://%s/?bootstrap=%s\n", address, router.BootstrapToken())
 	return http.ListenAndServe(address, router)
-}
-
-type localApplication struct{ store *store.MemoryStore }
-
-func (*localApplication) CreateRun(context.Context, app.CreateRunRequest) (domain.Run, error) {
-	return domain.Run{}, errors.New("local run composition requires configured provider")
-}
-func (a *localApplication) GetRun(ctx context.Context, id domain.RunID) (domain.Run, error) {
-	return a.store.GetRun(ctx, id)
-}
-func (*localApplication) CancelRun(context.Context, domain.RunID) error {
-	return errors.New("local run composition requires configured provider")
-}
-func (*localApplication) Approve(context.Context, domain.RunID, string) error {
-	return errors.New("local run composition requires configured provider")
-}
-func (*localApplication) Reject(context.Context, domain.RunID, string, bool) error {
-	return errors.New("local run composition requires configured provider")
-}
-func (*localApplication) Preflight(context.Context, app.CreateRunRequest) app.PreflightReport {
-	return app.PreflightReport{}
 }
