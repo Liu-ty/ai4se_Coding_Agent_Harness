@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Foundation PR #1 is merged at `6cad5d1`, `config-store-budget` PR #2 is merged at `712f257`, and `policy-tools` PR #3 is merged at `b4cab7c`. Executor-feedback PR #4 was merged early at `085933e`; its remediation PR #6 was subsequently reviewed and merged at `16e982c` with final head `790e38c`. All three inherited PR #4 threads and all five PR #6 threads are resolved. Duplicate Draft PR #5 is closed as superseded with its head branch retained. Tasks 1-16 are complete. Tasks 15-16 were merged through PR #11 at `10e99a8` with final head `7b78afc` after all CodeRabbit threads and required checks were resolved; Task 17 has not started.
+**Status:** Foundation PR #1 is merged at `6cad5d1`, `config-store-budget` PR #2 is merged at `712f257`, and `policy-tools` PR #3 is merged at `b4cab7c`. Executor-feedback PR #4 was merged early at `085933e`; its remediation PR #6 was subsequently reviewed and merged at `16e982c` with final head `790e38c`. All three inherited PR #4 threads and all five PR #6 threads are resolved. Duplicate Draft PR #5 is closed as superseded with its head branch retained. Tasks 1-17 are complete. Tasks 15-16 were merged through PR #11 at `10e99a8` with final head `7b78afc` after all CodeRabbit threads and required checks were resolved; Task 17 is complete on `codex/demo-release`, including the approval-lifecycle correction at `386b36e`.
 
 PR #4's early merge remains an auditable process deviation rather than being rewritten as a normal review closure. PR #6 repaired the three inherited review gaps, added Windows/Linux runtime CI and unsupported-platform rejection gates, and incorporated all follow-up output-drain, cleanup, credential-persistence, and documentation findings. Before merge, fresh Windows verification passed, both required GitHub Actions checks were green, CodeRabbit completed its final review, and every PR #6 thread was resolved. On 2026-07-28, each legacy PR #4 thread received a closure reply linking the remediation evidence and was then resolved. PR #5 contained no unique changes beyond the superseded PR #4 head and was closed without deleting its branch.
 
@@ -1467,7 +1467,7 @@ git commit -m "feat: add observable harness web interface"
 
 ---
 
-### Task 17: CLI Composition Roots and Deterministic Mechanism Demo
+### Task 17: CLI Composition Roots and Deterministic Mechanism Demo — complete (`94f678c`)
 
 **Files:**
 - Create: `cmd/ai4se-harness/main.go`
@@ -1486,7 +1486,7 @@ git commit -m "feat: add observable harness web interface"
 - Consumes: local app/API composition, embedded `internal/httpapi/webdist`, mock provider/executor/store.
 - Produces: `serve`, `run`, `credentials`, and `demo feedback-loop` commands plus a compile-time mock-only demo profile.
 
-- [ ] **Step 1: Write the failing mechanism-demo test**
+- [x] **Step 1: Write the failing mechanism-demo test**
 
 ```go
 func TestFeedbackLoopScenarioProvesRequiredMechanisms(t *testing.T) {
@@ -1505,12 +1505,12 @@ func TestFeedbackLoopScenarioProvesRequiredMechanisms(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/demo ./cmd/ai4se-harness -v`  
 Expected: FAIL because commands/demo composition are missing.
 
-- [ ] **Step 3: Implement CLI commands with hidden credential input**
+- [x] **Step 3: Implement CLI commands with hidden credential input**
 
 ```text
 ai4se-harness serve --profile local --repo <path>
@@ -1521,15 +1521,15 @@ ai4se-harness demo feedback-loop --format text|json
 
 Use `golang.org/x/term` for hidden terminal input. Do not accept a key flag or environment echo. `web.go` uses `//go:embed webdist/*` after Vite builds `internal/httpapi/webdist`; local opens a clean bootstrap URL, while demo binds the configured container address and exposes only mock routes.
 
-- [ ] **Step 4: Implement fixed conditional demo scenario**
+- [x] **Step 4: Implement fixed conditional demo scenario**
 
 Decision sequence is feedback-dependent: initial raw-shell request → on `POLICY_DENIED`, incomplete patch → on `TEST_FAILURE`, corrected patch → `finish`. Mock executor/checker returns deterministic evidence. Public workspace is an in-memory map and cannot resolve host paths.
 
-- [ ] **Step 5: Prove demo composition excludes real capabilities**
+- [x] **Step 5: Prove demo composition excludes real capabilities**
 
 Add tests that inspect registered tools/routes/types and fail if `Local`, keyring/vault, credential routes, custom endpoints, or `os/exec`-backed executor are reachable. Run with network disabled in CI.
 
-- [ ] **Step 6: Run green and commit**
+- [x] **Step 6: Run green and commit** (`94f678c`)
 
 Run:
 
@@ -1546,9 +1546,11 @@ git add cmd internal/demo internal/httpapi/web.go AGENT_LOG.md go.mod go.sum
 git commit -m "feat: ship local CLI and mock mechanism demo"
 ```
 
+**Post-review lifecycle remediation (`386b36e`):** The `run` command now retains the creating runtime when a run reaches `AWAITING_APPROVAL`, exposes that exact service/controller through a temporary authenticated loopback API, and closes the server only after terminal state. The approval window is bounded by `--approval-timeout` (15 minutes by default); timeout, caller cancellation, and server failure stop the owned run before SQLite teardown. A SQLite-backed real-loop regression bootstraps the local shell, obtains its injected CSRF runtime configuration, approves through the production HTTP route, and requires the same run to reach `SUCCEEDED`. A second regression proves timeout persists `STOPPED` and releases the listener.
+
 ---
 
-### Task 18: One-Command Tests, CI, Releases, Container, and Documentation
+### Task 18: One-Command Tests, CI, Releases, Container, and Documentation — complete (`04c12e3`)
 
 **Files:**
 - Create: `scripts/test.ps1`
@@ -1572,16 +1574,16 @@ git commit -m "feat: ship local CLI and mock mechanism demo"
 - Consumes: all prior build/test commands and the mock-only demo binary.
 - Produces: one-command verification per target shell, GitHub Actions `unit-test`, Windows/Linux release artifacts, GHCR demo image, Ubuntu deployment files, and complete operator documentation.
 
-- [ ] **Step 1: Write failing release/container contract tests**
+- [x] **Step 1: Write failing release/container contract tests**
 
 Mark `container_contract_test.go` with `//go:build integration`. Test that the demo binary starts without writable root, serves `/healthz`, returns 404 for credential/custom-run routes, writes only beneath its tmpfs path, and exits cleanly on SIGTERM. In the untagged workflow contract test, parse workflow YAML and assert a job key exactly named `unit-test` with both `ubuntu-latest` and `windows-latest` matrix entries.
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test -tags=integration ./internal/demo -run 'Container|Workflow' -v`  
 Expected: FAIL because workflows/container files are absent.
 
-- [ ] **Step 3: Implement one-command developer verification**
+- [x] **Step 3: Implement one-command developer verification**
 
 `scripts/test.ps1` and `scripts/test.sh` both run, in order: frontend unit tests, frontend production build into `internal/httpapi/webdist`, `go test ./...`, `go vet ./...`, and browser E2E. They stop on first nonzero exit and never print environment variables. Document:
 
@@ -1593,19 +1595,19 @@ Expected: FAIL because workflows/container files are absent.
 ./scripts/test.sh
 ```
 
-- [ ] **Step 4: Implement GitHub CI and release workflows**
+- [x] **Step 4: Implement GitHub CI and release workflows**
 
 `ci.yml` jobs: `unit-test` matrix (Windows/Ubuntu), `frontend-test`, `security-test`, `integration-test`, `build`, `docker-build`, and `e2e`. Every Go-compiling job runs `npm ci` and `npm run build` first so embedded assets exist. Pin action major versions and use least permissions. `release.yml` triggers on `v*` tags, builds `ai4se-harness_windows_amd64.exe` and `ai4se-harness_linux_amd64`, writes SHA-256 checksums, uploads GitHub Release assets, and pushes `ghcr.io/liu-ty/ai4se_coding_agent_harness:<tag>` plus immutable digest metadata.
 
-- [ ] **Step 5: Build the mock-only production image and deployment config**
+- [x] **Step 5: Build the mock-only production image and deployment config**
 
 Multi-stage Dockerfile builds Node assets, then the Go demo binary, then copies only the binary and CA certificates into a non-root minimal image. Entrypoint is `serve --profile demo`. Compose sets read-only root, tmpfs, `cap_drop: [ALL]`, `no-new-privileges`, PID/memory/CPU limits, and loopback exposure to Caddy. Caddy uses `{$AI4SE_DOMAIN}` as the exact site label, obtains HTTPS automatically, and proxies only to demo.
 
-- [ ] **Step 6: Write complete delivery documentation**
+- [x] **Step 6: Write complete delivery documentation**
 
 README sections exactly include: Overview, Why This Exists, Architecture, Installation, Windows Quickstart, Linux Quickstart, Configuration, Validation Pipeline, Permission Profiles, Credential Security, Running Locally, Public Demo, Distribution, Directory Structure, Security Boundaries, Known Limitations, Development, Testing, CI/CD, Deployment, Third-Party Licenses. `SECURITY.md` explains trusted-local-repository boundary and vulnerability reporting. `THIRD_PARTY_LICENSES.md` records every dependency and Open Design attribution. Project license is Apache-2.0.
 
-- [ ] **Step 7: Run full verification and inspect fresh-machine artifacts**
+- [x] **Step 7: Run full verification and inspect fresh-machine artifacts**
 
 Run:
 
@@ -1619,7 +1621,7 @@ docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m ai4se-harness
 
 Expected: all tests/builds PASS; container JSON says `SUCCEEDED`; `git grep` and secret scan find no real credentials.
 
-- [ ] **Step 8: Commit and record final CI evidence**
+- [x] **Step 8: Commit and record final CI evidence** (`04c12e3`; local Docker verification pending a Docker-enabled environment)
 
 ```powershell
 git add scripts .github Dockerfile .dockerignore deploy README.md SECURITY.md THIRD_PARTY_LICENSES.md LICENSE PLAN.md AGENT_LOG.md

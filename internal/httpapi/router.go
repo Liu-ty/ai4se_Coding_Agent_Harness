@@ -144,6 +144,9 @@ func NewLocal(options Options) (*Router, error) {
 	router.registerSecret(router.bootstrapToken)
 	router.registerSecret(router.sessionToken)
 	router.registerSecret(router.csrfToken)
+	if router.appShell != nil {
+		router.appShell = localRuntimeWebHandler(router.appShell, router.csrfToken, router.capabilities)
+	}
 	return router, nil
 }
 
@@ -258,15 +261,8 @@ func (r *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			}
 		}
 	}
-	if r.local && request.URL.Path == "/" {
-		if request.Method != http.MethodGet {
-			r.writeMethodNotAllowed(writer, requestID)
-			return
-		}
-		if r.appShell == nil {
-			r.writeNotFound(writer, requestID)
-			return
-		}
+	if request.Method == http.MethodGet && r.appShell != nil &&
+		!strings.HasPrefix(request.URL.Path, "/api/") {
 		r.appShell.ServeHTTP(writer, request)
 		return
 	}

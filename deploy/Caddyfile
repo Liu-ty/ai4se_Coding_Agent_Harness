@@ -1,0 +1,4 @@
+{$AI4SE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy demo:8080
+}

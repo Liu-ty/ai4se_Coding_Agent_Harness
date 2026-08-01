@@ -90,6 +90,23 @@ type Service struct {
 	stopping    map[domain.RunID]bool
 }
 
+// Close attempts to stop every active run. Callers must retain storage when it
+// returns an error because loop cleanup may be incomplete.
+func (s *Service) Close() error {
+	page, err := s.store.ListRuns(context.Background(), storeport.RunListQuery{})
+	if err != nil {
+		return err
+	}
+	var closeErr error
+	for _, run := range page.Runs {
+		if terminal(run.State) {
+			continue
+		}
+		closeErr = errors.Join(closeErr, s.CancelRun(context.Background(), run.ID))
+	}
+	return closeErr
+}
+
 type runInput struct {
 	request CreateRunRequest
 	report  PreflightReport
