@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-23
 **Repository:** `git@github.com:Liu-ty/ai4se_Coding_Agent_Harness.git`
-**Integration worktree:** `F:\codes\ai4se-cold-start`
+**Integration worktree:** `<cold-start-worktree>`
 **Branch lineage:** `cold-start/evidence-20260723` → `foundation` → `config-store-budget`
 **Authoritative implementation plan:** `PLAN.md`
 
@@ -111,7 +111,7 @@ Never invent red/green evidence. Never modify the student-only `REFLECTION.md`.
 ```text
 你正在处理 AI4SE Coding Agent Harness 的冷启动证据整合，不是在开始新功能。
 
-工作目录：F:\codes\ai4se-cold-start
+工作目录：<cold-start-worktree>
 当前分支：cold-start/opencode-clean-20260722-rerun
 基线提交：dee5d29
 

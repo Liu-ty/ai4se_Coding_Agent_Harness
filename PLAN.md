@@ -1101,7 +1101,7 @@ git commit -m "feat: connect OpenAI-compatible and Anthropic providers"
 
 ---
 
-### Task 13: OS Keyring and Encrypted Vault Credentials — complete (this commit)
+### Task 13: OS Keyring and Encrypted Vault Credentials — complete (9d4efca)
 
 **PR #9 unresolved-thread follow-up:** Vault status now checks record presence and modification time without requesting the master password, deriving an Argon2id key, or decrypting credential bytes. Actual credential use still performs full authenticated decryption and endpoint binding.
 
@@ -1182,7 +1182,7 @@ git commit -m "feat: store provider credentials securely"
 
 ---
 
-### Task 14: Application Service, Preflight, and Repository Locking — complete (this commit)
+### Task 14: Application Service, Preflight, and Repository Locking — complete (f73a4df)
 
 **Final review remediation:** Credentials may be sent only to HTTPS endpoints or literal loopback-IP HTTP endpoints; non-default endpoint hosts/ports require explicit confirmation. Repository ownership uses a durable, owner-matched cross-process lease and startup recovery releases only the matching abandoned lease. Agent approval digests include captured baseline commit/diff values, and resumed validation failures return structured feedback to re-decision.
 
@@ -1260,7 +1260,7 @@ git commit -m "feat: orchestrate safe local harness runs"
 
 ---
 
-### Task 15: Versioned HTTP API, SSE, and Local Web Security
+### Task 15: Versioned HTTP API, SSE, and Local Web Security — complete (10f45b4)
 
 **Files:**
 - Create: `internal/httpapi/router.go`
@@ -1270,13 +1270,18 @@ git commit -m "feat: orchestrate safe local harness runs"
 - Create: `internal/httpapi/events.go`
 - Create: `internal/httpapi/security.go`
 - Test: `internal/httpapi/api_test.go`
+- Modify: `internal/storeport/store.go`
+- Modify: `internal/store/memory.go`
+- Modify: `internal/store/sqlite.go`
+- Test: `internal/store/store_test.go`
+- Test: `internal/storeport/storeport_test.go`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**
 - Consumes: `app.Service`, store event reads, credential service, route-capability set.
 - Produces: `/api/v1` JSON/SSE API, local-session middleware, and a demo-safe route composition mechanism.
 
-- [ ] **Step 1: Write failing route, origin, CSRF, SSE replay, and secret-response tests**
+- [x] **Step 1: Write failing route, origin, CSRF, SSE replay, and secret-response tests**
 
 ```go
 func TestMutationRequiresSessionAndOrigin(t *testing.T) {
@@ -1302,17 +1307,18 @@ func TestCredentialStatusResponseNeverContainsCanary(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/httpapi -v`  
 Expected: FAIL because HTTP API is missing.
 
-- [ ] **Step 3: Implement exact routes and JSON error envelope**
+- [x] **Step 3: Implement exact routes and JSON error envelope**
 
 Routes:
 
 ```text
 POST   /api/v1/runs
+GET    /api/v1/runs?offset={0..1000000}&limit={1..100}
 GET    /api/v1/runs/{id}
 POST   /api/v1/runs/{id}/cancel
 POST   /api/v1/runs/{id}/approvals/{digest}/approve
@@ -1326,20 +1332,40 @@ DELETE /api/v1/credentials/{provider}/{host}
 GET    /healthz
 ```
 
+`GET /api/v1/runs` defaults to `offset=0&limit=50` and returns the exact
+envelope `{"runs":[<run DTO>],"page":{"offset":0,"limit":50,"returned":1,"has_more":false}}`.
+The store applies filtering, `LIMIT`, and `OFFSET` before returning rows,
+ordered by `updated_at DESC, id ASC`. Demo composition supplies its fixed run
+IDs to that store query, so fixed-ID filtering occurs before pagination and
+cannot expose or skip entries because hidden local runs are interleaved.
+
+Production `ApprovalRequired` events use the exact stable DTO
+`{"digest":"...","action":{"kind":"...","args":{...}},"affected_files":["..."],"risk":"NORMAL|GUARDED","risk_reason":"...","baseline_evidence":[{"name":"baseline_commit","digest":"..."}]}`.
+The digest binds the exact unredacted canonical request. Mutation action
+arguments are display-only bounded representations: patch/content values are
+`{"sha256":"...","preview":"...","truncated":true|false}` with at most 2 KiB
+of preview; patch previews contain only redacted hunk headers, never changed
+lines or a complete patch. Paths, reasons, and evidence fields are separately bounded.
+The app and HTTP compositions inject one concurrency-safe central redactor into
+the agent loop; runtime credential registration updates that shared known-secret
+set. Published fields are redacted before persistence, affected files and
+baseline evidence remain available and sorted, and a complete arbitrary patch
+or file body is never written to the approval event.
+
 Errors use the exact envelope shape `{"error":{"code":"INVALID_JSON","message":"request body is not valid JSON","request_id":"req-123"}}`; messages are redacted and bounded.
 
-- [ ] **Step 4: Implement local security and SSE**
+- [x] **Step 4: Implement local security and SSE**
 
 Bind composition to `127.0.0.1`; generate a 32-byte random session token; exchange a one-time bootstrap token for an HttpOnly, SameSite=Strict cookie; redirect to a clean URL; require matching Host/Origin and a per-session CSRF header for mutations; emit `id`, `event`, and JSON `data` SSE fields with heartbeat comments and `Last-Event-ID` replay.
 
-- [ ] **Step 5: Add demo route-capability tests and run green**
+- [x] **Step 5: Add demo route-capability tests and run green**
 
 The router constructor accepts capabilities. A demo router must return 404 for credentials, arbitrary run creation, config validation, and artifacts outside fixed demo runs.
 
 Run: `go test ./internal/httpapi -v`  
 Expected: PASS for every route, invalid JSON, body size, auth/origin/CSRF, SSE replay/disconnect, 404 capability pruning, and secret canary.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add internal/httpapi AGENT_LOG.md
@@ -1348,7 +1374,7 @@ git commit -m "feat: expose secure local run API and events"
 
 ---
 
-### Task 16: Open Design React WebUI
+### Task 16: Open Design React WebUI — complete (8e66b7c)
 
 **Files:**
 - Create: `DESIGN.md`
@@ -1356,7 +1382,11 @@ git commit -m "feat: expose secure local run API and events"
 - Create: `web/package-lock.json`
 - Create: `web/tsconfig.json`
 - Create: `web/vite.config.ts`
+- Create: `web/vitest.config.ts`
+- Create: `web/playwright.config.ts`
 - Create: `web/src/main.tsx`
+- Create: `web/src/App.tsx`
+- Create: `web/src/styles/tokens.css`
 - Create: `web/src/api/client.ts`
 - Create: `web/src/api/types.ts`
 - Create: `web/src/pages/Dashboard.tsx`
@@ -1367,20 +1397,25 @@ git commit -m "feat: expose secure local run API and events"
 - Create: `web/src/components/Timeline.tsx`
 - Create: `web/src/components/ApprovalPanel.tsx`
 - Create: `web/src/components/DiffViewer.tsx`
-- Create: `web/src/styles/tokens.css`
+- Create: `web/src/components/StatusLabel.tsx`
+- Test: `web/src/api/client.test.ts`
+- Test: `web/src/App.test.tsx`
+- Test: `web/src/components/components.test.tsx`
+- Test: `web/src/pages/pages.test.tsx`
 - Test: `web/src/**/*.test.tsx`
 - Test: `web/e2e/run.spec.ts`
+- Create: `web/e2e/server/main.go`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**
 - Consumes: exact `/api/v1` schemas and SSE events from Task 15.
 - Produces: embedded-build-ready SPA covering dashboard, new run, timeline/diff, approval, credentials, and simulated demos.
 
-- [ ] **Step 1: Materialize the approved design system before components**
+- [x] **Step 1: Materialize the approved design system before components**
 
 Use Open Design’s `dashboard` prototype skill with the `linear-app` system. Commit a nine-section `DESIGN.md` defining color, typography, spacing, layout, components, motion, voice, brand, and anti-patterns. Required visible rules: fixed light theme, status text plus icon (never color alone), `SIMULATED` badge for demo, keyboard focus ring, dense developer-tool layout, no decorative gradients, no embedded terminal.
 
-- [ ] **Step 2: Create the Vite/Vitest/Testing Library scaffold and failing UI tests**
+- [x] **Step 2: Create the Vite/Vitest/Testing Library scaffold and failing UI tests**
 
 Run `npm create vite@8.1.0 web -- --template react-ts`, pin `react` and `react-dom` to 19.2, then install Vitest, Testing Library, Playwright, and axe-core as development dependencies. Commit the generated lockfile; subsequent CI uses `npm ci`.
 
@@ -1400,20 +1435,20 @@ it("approval panel never offers a permanent allow", () => {
 })
 ```
 
-- [ ] **Step 3: Run red**
+- [x] **Step 3: Run red**
 
 Run: `npm --prefix web test -- --run`  
 Expected: FAIL because pages/components are absent.
 
-- [ ] **Step 4: Implement typed client, pages, and components**
+- [x] **Step 4: Implement typed client, pages, and components**
 
 Keep server state in a small fetch/SSE client, not a global framework. Reconnect SSE using the latest sequence. Render raw redacted output only on explicit expand. Diff viewer is read-only. Credential inputs use password fields and clear local state immediately after submission. Public-demo mode hides unavailable controls based on server capabilities, while server-side route pruning remains authoritative.
 
-- [ ] **Step 5: Add accessibility and browser E2E tests**
+- [x] **Step 5: Add accessibility and browser E2E tests**
 
 Browser scenario: open demo gallery → start feedback-loop scenario → observe policy denial → observe failed validation → observe changed second patch → reach succeeded → inspect final diff. Keyboard-only scenario must create a supervised local-form draft and open/close the approval panel. Run axe checks on all pages with zero serious/critical findings.
 
-- [ ] **Step 6: Run green, build, and commit**
+- [x] **Step 6: Run green, build, and commit**
 
 Run:
 

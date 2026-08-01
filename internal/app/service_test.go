@@ -147,7 +147,8 @@ func TestEndpointQuerySecretIsRejectedAndNeverPersisted(t *testing.T) {
 	if _, err := svc.CreateRun(context.Background(), req); !errors.Is(err, ErrPreflightFailed) {
 		t.Fatalf("create error = %v, want ErrPreflightFailed", err)
 	}
-	runs, err := st.ListRuns(context.Background())
+	page, err := st.ListRuns(context.Background(), storeport.RunListQuery{})
+	runs := page.Runs
 	if err != nil || len(runs) != 0 {
 		t.Fatalf("persisted runs = %#v, %v", runs, err)
 	}
@@ -611,12 +612,13 @@ func TestStartupRecoveryRemovesMatchingDurableLeaseAfterRepositoryMoves(t *testi
 }
 
 func TestNewLocalBindsRunInputsToRealAgentLoopAndApproval(t *testing.T) {
+	const approvalCanary = "correct-horse-7429"
 	repo := configuredRepo(t, "git")
 	st := store.NewMemory()
 	creds := configuredCredentials(t)
 	patch := domain.Action{
 		Kind: "apply_patch",
-		Args: json.RawMessage(`{"patch":"--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"}`),
+		Args: json.RawMessage(`{"patch":"--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+correct-horse-7429\n"}`),
 	}
 	var decisions int
 	mock := provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
@@ -650,7 +652,8 @@ func TestNewLocalBindsRunInputsToRealAgentLoopAndApproval(t *testing.T) {
 		})
 		return loop, approvals, nil
 	})
-	svc, err := NewLocal(context.Background(), st, factory, creds, t.TempDir())
+	centralRedactor := feedback.NewRedactor([]string{approvalCanary})
+	svc, err := NewLocal(context.Background(), st, factory, creds, t.TempDir(), &centralRedactor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -679,6 +682,26 @@ func TestNewLocalBindsRunInputsToRealAgentLoopAndApproval(t *testing.T) {
 		"baseline_commit":    received.Report.BaselineCommit,
 		"baseline_diff_hash": received.Report.BaselineDiffHash,
 	})
+	events, err := st.ListEvents(context.Background(), run.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var approval agent.ApprovalRequired
+	for _, event := range events {
+		if event.Type == "ApprovalRequired" {
+			if strings.Contains(string(event.Payload), approvalCanary) {
+				t.Fatalf("production approval event leaked runtime secret: %s", event.Payload)
+			}
+			if err := json.Unmarshal(event.Payload, &approval); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if approval.Digest != digest || approval.Action.Kind != "apply_patch" ||
+		len(approval.AffectedFiles) != 1 || approval.AffectedFiles[0] != "a.txt" ||
+		approval.RiskReason == "" || len(approval.BaselineEvidence) != 2 {
+		t.Fatalf("production approval request = %#v", approval)
+	}
 	if err := svc.Approve(context.Background(), run.ID, "wrong-digest"); err == nil {
 		t.Fatal("wrong digest was accepted")
 	}
@@ -704,7 +727,9 @@ func TestApprovedActionCanBeCancelledWithoutBlockingAnotherRun(t *testing.T) {
 	actionStarted := make(chan struct{})
 	runner := &cancelAwareRunner{started: actionStarted}
 	factory := approvalLoopFactory(st, runner)
-	svc, err := NewLocal(context.Background(), st, factory, configuredCredentials(t), t.TempDir())
+	svc, err := NewLocal(
+		context.Background(), st, factory, configuredCredentials(t), t.TempDir(), testRedactor(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -771,9 +796,22 @@ func TestBusyApprovalDoesNotRevokeExistingSameDigestGrant(t *testing.T) {
 func TestNewLocalRejectsNilLoopFactory(t *testing.T) {
 	_, err := NewLocal(
 		context.Background(), store.NewMemory(), nil, configuredCredentials(t), t.TempDir(),
+		testRedactor(),
 	)
 	if err == nil {
 		t.Fatal("nil loop factory was accepted")
+	}
+}
+
+func TestNewLocalRequiresCentralRedactor(t *testing.T) {
+	factory := AgentLoopFactory(func(context.Context, RunSetup) (*agent.Loop, *policy.ApprovalStore, error) {
+		return nil, nil, nil
+	})
+	_, err := NewLocal(
+		context.Background(), store.NewMemory(), factory, configuredCredentials(t), t.TempDir(), nil,
+	)
+	if err == nil {
+		t.Fatal("nil central redactor was accepted")
 	}
 }
 
@@ -781,7 +819,9 @@ func TestApprovedActionErrorStopsRunAndReleasesRepository(t *testing.T) {
 	repo := configuredRepo(t, "git")
 	st := store.NewMemory()
 	factory := approvalLoopFactory(st, errorRunner{err: errors.New("action failed")})
-	svc, err := NewLocal(context.Background(), st, factory, configuredCredentials(t), t.TempDir())
+	svc, err := NewLocal(
+		context.Background(), st, factory, configuredCredentials(t), t.TempDir(), testRedactor(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -810,7 +850,8 @@ func TestCreateRunSetupFailureStopsDurableRunBeforeReleasingLock(t *testing.T) {
 	if err == nil {
 		t.Fatal("injected setup failure was not returned")
 	}
-	runs, listErr := base.ListRuns(context.Background())
+	page, listErr := base.ListRuns(context.Background(), storeport.RunListQuery{})
+	runs := page.Runs
 	if listErr != nil || len(runs) != 1 || runs[0].State != domain.StateStopped {
 		t.Fatalf("durable runs after setup failure = %#v, %v (returned %#v)", runs, listErr, run)
 	}
@@ -1081,6 +1122,11 @@ type failConditionalUpdateStore struct {
 	storeport.Store
 	mu        sync.Mutex
 	remaining int
+}
+
+func testRedactor() *feedback.Redactor {
+	redactor := feedback.NewRedactor(nil)
+	return &redactor
 }
 
 func (s *failConditionalUpdateStore) UpdateRunIfState(

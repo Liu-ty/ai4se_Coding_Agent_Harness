@@ -21,6 +21,9 @@ import (
 //go:embed migrations/001_init.sql
 var initialMigration string
 
+//go:embed migrations/002_runs_list_index.sql
+var runsListIndexMigration string
+
 // SQLiteStore persists store records in a local SQLite database.
 type SQLiteStore struct {
 	db    *sql.DB
@@ -65,6 +68,10 @@ func OpenSQLiteWithClock(path string, clock Clock) (*SQLiteStore, error) {
 	if _, err := db.ExecContext(setupCtx, initialMigration); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply initial migration: %w", err)
+	}
+	if _, err := db.ExecContext(setupCtx, runsListIndexMigration); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("apply runs list index migration: %w", err)
 	}
 	return &SQLiteStore{db: db, clock: clock}, nil
 }
@@ -319,16 +326,41 @@ func (s *SQLiteStore) GetRun(ctx context.Context, runID domain.RunID) (domain.Ru
 	return run, nil
 }
 
-func (s *SQLiteStore) ListRuns(ctx context.Context) (runs []domain.Run, err error) {
-	if err := checkContext(ctx); err != nil {
-		return nil, err
+func (s *SQLiteStore) ListRuns(ctx context.Context, query storeport.RunListQuery) (page storeport.RunPage, err error) {
+	if query.Limit < 0 || query.Offset < 0 {
+		return storeport.RunPage{}, storeport.ErrInvalidRunList
 	}
-	runs = make([]domain.Run, 0)
-	rows, err := s.db.QueryContext(ctx, `
+	if err := checkContext(ctx); err != nil {
+		return storeport.RunPage{}, err
+	}
+	page.Runs = make([]domain.Run, 0)
+	statement := `
 		SELECT id, state, profile, task, repo_root, current_stage, created_at, updated_at
-		FROM runs ORDER BY id`)
+		FROM runs`
+	args := make([]any, 0, len(query.IDs)+2)
+	if query.IDs != nil {
+		if len(query.IDs) == 0 {
+			statement += ` WHERE 0`
+		} else {
+			placeholders := make([]string, len(query.IDs))
+			for index, id := range query.IDs {
+				placeholders[index] = "?"
+				args = append(args, id)
+			}
+			statement += ` WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+		}
+	}
+	statement += ` ORDER BY updated_at DESC, id ASC`
+	if query.Limit > 0 {
+		statement += ` LIMIT ? OFFSET ?`
+		args = append(args, query.Limit+1, query.Offset)
+	} else if query.Offset > 0 {
+		statement += ` LIMIT -1 OFFSET ?`
+		args = append(args, query.Offset)
+	}
+	rows, err := s.db.QueryContext(ctx, statement, args...)
 	if err != nil {
-		return nil, err
+		return storeport.RunPage{}, err
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil && err == nil {
@@ -339,16 +371,20 @@ func (s *SQLiteStore) ListRuns(ctx context.Context) (runs []domain.Run, err erro
 		var run domain.Run
 		var createdAt, updatedAt int64
 		if err := rows.Scan(&run.ID, &run.State, &run.Profile, &run.Task, &run.RepoRoot, &run.CurrentStage, &createdAt, &updatedAt); err != nil {
-			return nil, err
+			return storeport.RunPage{}, err
 		}
 		run.CreatedAt = loadTime(createdAt)
 		run.UpdatedAt = loadTime(updatedAt)
-		runs = append(runs, run)
+		page.Runs = append(page.Runs, run)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return storeport.RunPage{}, err
 	}
-	return runs, nil
+	if query.Limit > 0 && len(page.Runs) > query.Limit {
+		page.Runs = page.Runs[:query.Limit]
+		page.HasMore = true
+	}
+	return page, nil
 }
 
 func storeTime(value time.Time) int64 {
@@ -426,13 +462,64 @@ func (s *SQLiteStore) PutArtifact(ctx context.Context, artifact domain.Artifact)
 	if !exists {
 		return storeport.ErrRunNotFound
 	}
-	_, err = s.db.ExecContext(ctx, `
+	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO artifacts (id, run_id, kind, sha256, content, truncated)
 		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET run_id = excluded.run_id, kind = excluded.kind,
-		sha256 = excluded.sha256, content = excluded.content, truncated = excluded.truncated`,
+		ON CONFLICT(id) DO UPDATE SET kind = excluded.kind,
+		sha256 = excluded.sha256, content = excluded.content, truncated = excluded.truncated
+		WHERE artifacts.run_id = excluded.run_id`,
 		artifact.ID, artifact.RunID, artifact.Kind, artifact.SHA256, artifact.Content, artifact.Truncated)
-	return err
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return storeport.ErrArtifactExists
+	}
+	return nil
+}
+
+func (s *SQLiteStore) GetArtifact(
+	ctx context.Context,
+	runID domain.RunID,
+	artifactID string,
+) (domain.Artifact, error) {
+	if err := validateRunID(runID); err != nil {
+		return domain.Artifact{}, err
+	}
+	if artifactID == "" {
+		return domain.Artifact{}, storeport.ErrEmptyArtifactID
+	}
+	if err := checkContext(ctx); err != nil {
+		return domain.Artifact{}, err
+	}
+	var artifact domain.Artifact
+	var truncated bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, run_id, kind, sha256, content, truncated
+		FROM artifacts WHERE id = ? AND run_id = ?`, artifactID, runID,
+	).Scan(
+		&artifact.ID, &artifact.RunID, &artifact.Kind, &artifact.SHA256,
+		&artifact.Content, &truncated,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		exists, existsErr := s.runExists(ctx, runID)
+		if existsErr != nil {
+			return domain.Artifact{}, existsErr
+		}
+		if !exists {
+			return domain.Artifact{}, storeport.ErrRunNotFound
+		}
+		return domain.Artifact{}, storeport.ErrArtifactNotFound
+	}
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	artifact.Truncated = truncated
+	return cloneArtifact(artifact), nil
 }
 
 func (s *SQLiteStore) runExists(ctx context.Context, runID domain.RunID) (bool, error) {

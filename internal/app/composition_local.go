@@ -8,6 +8,7 @@ import (
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/agent"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/credentials"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/feedback"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/policy"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/storeport"
 )
@@ -24,6 +25,7 @@ type AgentLoopFactory func(context.Context, RunSetup) (*agent.Loop, *policy.Appr
 
 type agentLoopController struct {
 	factory  AgentLoopFactory
+	redactor feedback.Redactor
 	mu       sync.Mutex
 	sessions map[domain.RunID]*agentLoopSession
 }
@@ -37,9 +39,13 @@ type agentLoopSession struct {
 	active    chan struct{}
 }
 
-func NewAgentLoopController(factory AgentLoopFactory) LoopController {
+func NewAgentLoopController(factory AgentLoopFactory, redactors ...feedback.Redactor) LoopController {
+	var redactor feedback.Redactor
+	if len(redactors) > 0 {
+		redactor = redactors[0]
+	}
 	return &agentLoopController{
-		factory: factory, sessions: make(map[domain.RunID]*agentLoopSession),
+		factory: factory, redactor: redactor, sessions: make(map[domain.RunID]*agentLoopSession),
 	}
 }
 
@@ -60,6 +66,7 @@ func (c *agentLoopController) Start(ctx context.Context, setup RunSetup) error {
 		cancel()
 		return errors.New("app: loop factory returned incomplete session")
 	}
+	loop.BindApprovalRedactor(c.redactor)
 	loop.BindBaselines(map[string]string{
 		"baseline_commit":    setup.Report.BaselineCommit,
 		"baseline_diff_hash": setup.Report.BaselineDiffHash,
@@ -218,12 +225,16 @@ func NewLocal(
 	factory AgentLoopFactory,
 	creds *credentials.Service,
 	dataDir string,
+	redactor *feedback.Redactor,
 ) (*Service, error) {
 	if factory == nil {
 		return nil, errors.New("app: agent loop factory is required")
 	}
+	if redactor == nil {
+		return nil, errors.New("app: central redactor is required")
+	}
 	return NewService(ctx, Options{
-		Store: store, Loops: NewAgentLoopController(factory),
+		Store: store, Loops: NewAgentLoopController(factory, *redactor),
 		Credentials: creds, DataDir: dataDir,
 	})
 }

@@ -1,9 +1,13 @@
 package agent_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -155,6 +159,108 @@ func TestApprovalDigestBindsRunBaselines(t *testing.T) {
 	if _, err := loop.ResumeApproval(context.Background(), run.ID, stale); !errors.Is(err, agent.ErrApprovalNotGranted) {
 		t.Fatalf("stale baseline approval error = %v", err)
 	}
+}
+
+func TestApprovalRequiredPublishesRedactedBoundProductionRequest(t *testing.T) {
+	const canary = "correct-horse-7429"
+	run := newRun()
+	run.Profile = domain.ProfileSupervised
+	directory := t.TempDir()
+	databasePath := filepath.Join(directory, "runs.db")
+	db, err := store.OpenSQLite(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = db.Close()
+		}
+	}()
+	if err := db.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	patchText := "--- a/bug.go\n+++ b/bug.go\n@@ -1 +1 @@ " + canary + "\n-old\n+" +
+		strings.Repeat("x", 12<<10) +
+		"\n--- a/obsolete.go\n+++ /dev/null\n@@ -1 +0,0 @@\n-delete me\n"
+	patchArgs, err := json.Marshal(map[string]string{"patch": patchText})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch := domain.Action{
+		Kind: "apply_patch",
+		Args: patchArgs,
+	}
+	baselines := map[string]string{"baseline_diff_hash": "diff-2", "baseline_commit": "commit-1"}
+	loop := agent.New(agent.Dependencies{
+		Store: db, Provider: provider.NewMock(func(context.Context, provider.Request) (provider.Response, error) {
+			return provider.Response{Decision: decision(patch)}, nil
+		}), Actions: &countingRunner{}, Policy: policy.NewEngine(),
+		Baselines: baselines, Feedback: feedback.Pipeline{}, Validation: &checks{},
+		ApprovalRedactor: feedback.NewRedactor([]string{canary}),
+		Budget:           budget.New(budget.Limits{MaxDecisions: 2, MaxMutations: 1, MaxProtocolRepairs: 1, WallClock: time.Minute}, fixedClock{}),
+	})
+
+	if _, err := loop.Run(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	events, err := db.ListEvents(context.Background(), run.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request agent.ApprovalRequired
+	for _, event := range events {
+		if event.Type == "ApprovalRequired" {
+			if err := json.Unmarshal(event.Payload, &request); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if request.Digest != policy.Digest(run.ID, run.Profile, patch, baselines) {
+		t.Fatalf("digest = %q", request.Digest)
+	}
+	var display struct {
+		Patch struct {
+			SHA256    string `json:"sha256"`
+			Preview   string `json:"preview"`
+			Truncated bool   `json:"truncated"`
+		} `json:"patch"`
+	}
+	if err := json.Unmarshal(request.Action.Args, &display); err != nil {
+		t.Fatal(err)
+	}
+	if request.Action.Kind != "apply_patch" || display.Patch.SHA256 == "" ||
+		!display.Patch.Truncated || !strings.Contains(display.Patch.Preview, "[REDACTED]") ||
+		strings.Contains(display.Patch.Preview, "+xxxxxxxx") {
+		t.Fatalf("canonical redacted action = %#v", request.Action)
+	}
+	if len(request.AffectedFiles) != 2 || request.AffectedFiles[0] != "bug.go" ||
+		request.AffectedFiles[1] != "obsolete.go" {
+		t.Fatalf("affected files = %#v", request.AffectedFiles)
+	}
+	if request.Risk != policy.RiskNormal || request.RiskReason == "" {
+		t.Fatalf("risk = %q reason = %q", request.Risk, request.RiskReason)
+	}
+	if len(request.BaselineEvidence) != 2 ||
+		request.BaselineEvidence[0].Name != "baseline_commit" ||
+		request.BaselineEvidence[0].Digest != "commit-1" ||
+		request.BaselineEvidence[1].Name != "baseline_diff_hash" {
+		t.Fatalf("baseline evidence = %#v", request.BaselineEvidence)
+	}
+	for _, event := range events {
+		if bytes.Contains(event.Payload, []byte(canary)) {
+			t.Fatalf("raw event %q leaked a secret: %s", event.Type, event.Payload)
+		}
+		if event.Type == "ApprovalRequired" && len(event.Payload) > 8<<10 {
+			t.Fatalf("approval event is unbounded: %d bytes", len(event.Payload))
+		}
+	}
+	assertSQLiteFilesDoNotContain(t, directory, canary, true)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	closed = true
+	assertSQLiteFilesDoNotContain(t, directory, canary, false)
 }
 
 func TestApprovedValidationFailureFeedsBackAndRedecides(t *testing.T) {
@@ -507,6 +613,37 @@ func pass(stage string) agent.ValidationResult {
 	return agent.ValidationResult{StageID: stage, Passed: true, Observation: domain.Observation{Code: executor.CodeExit, ExitCode: intp(0)}}
 }
 func intp(v int) *int { return &v }
+
+func assertSQLiteFilesDoNotContain(
+	t *testing.T,
+	directory string,
+	canary string,
+	databaseOpen bool,
+) {
+	t.Helper()
+	phase := "after close"
+	if databaseOpen {
+		phase = "while open"
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || (entry.Name() != "runs.db" &&
+			!strings.HasPrefix(entry.Name(), "runs.db-")) {
+			continue
+		}
+		persisted, err := os.ReadFile(filepath.Join(directory, entry.Name()))
+		if err != nil {
+			t.Fatalf("read SQLite file %q %s: %v", entry.Name(), phase, err)
+		}
+		if bytes.Contains(persisted, []byte(canary)) {
+			t.Fatalf("SQLite file %q contains approval canary %s", entry.Name(), phase)
+		}
+	}
+}
+
 func assertEvents(t *testing.T, mem *store.MemoryStore, id domain.RunID, want ...string) {
 	t.Helper()
 	events, err := mem.ListEvents(context.Background(), id, 1)

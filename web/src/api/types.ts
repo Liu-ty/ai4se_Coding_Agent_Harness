@@ -1,0 +1,117 @@
+export type PermissionProfile = "review" | "supervised" | "workspace-auto";
+
+export type RunState =
+  | "CREATED"
+  | "PREFLIGHT"
+  | "BASELINE_VALIDATING"
+  | "DECIDING"
+  | "EXECUTING"
+  | "VALIDATING"
+  | "FINAL_VALIDATING"
+  | "AWAITING_APPROVAL"
+  | "SUCCEEDED"
+  | "REVIEW_COMPLETE"
+  | "STOPPED";
+
+export interface Run {
+  id: string;
+  state: RunState;
+  profile: PermissionProfile;
+  task: string;
+  repo_root: string;
+  current_stage: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RunPage {
+  runs: Run[];
+  page: {
+    offset: number;
+    limit: number;
+    returned: number;
+    has_more: boolean;
+  };
+}
+
+export interface CreateRunRequest {
+  repo_root: string;
+  task: string;
+  provider: string;
+  model: string;
+  endpoint: string;
+  confirm_custom_endpoint: boolean;
+  profile: PermissionProfile;
+  config_path?: string;
+}
+
+export interface Finding {
+  code: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+}
+
+export interface PreflightReport {
+  ok: boolean;
+  findings: Finding[];
+  repo_root: string;
+  baseline_commit: string;
+  baseline_diff_hash: string;
+}
+
+export interface Artifact {
+  id: string;
+  run_id: string;
+  kind: string;
+  sha256: string;
+  content: string;
+  truncated: boolean;
+}
+
+export interface CredentialStatus {
+  ref: { provider: string; host: string };
+  configured: boolean;
+  backend: string;
+  updated_at: string;
+}
+
+export interface ErrorEnvelope {
+  error?: { code?: string; message?: string; request_id?: string };
+}
+
+export type ConnectionState =
+  | "connected"
+  | "disconnected"
+  | "failed"
+  | "reconnecting"
+  | "reconnected";
+
+export interface StreamFailure {
+  kind: "connect" | "http" | "read";
+  message: string;
+  attempts: number;
+  lastSequence?: number;
+}
+
+export interface RunEvent {
+  sequence: number;
+  type: string;
+  at?: string;
+  payload: Record<string, unknown>;
+}
+
+export interface RuntimeCapabilities {
+  createRuns: boolean;
+  cancelRuns: boolean;
+  approvals: boolean;
+  artifacts: boolean;
+  configValidation: boolean;
+  credentials: boolean;
+  demo: boolean;
+  fixedRuns: string[];
+}
+
+export interface RuntimeConfig {
+  csrfToken?: string;
+  capabilities: RuntimeCapabilities;
+}

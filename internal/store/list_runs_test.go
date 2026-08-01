@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/store"
@@ -80,25 +81,39 @@ func TestStoresConditionallyUpdateLifecycleState(t *testing.T) {
 	}
 }
 
-func TestStoresListRunsInStableIDOrder(t *testing.T) {
+func TestStoresListRunsByRecentUpdateWithStablePaginationAndFiltering(t *testing.T) {
 	for name, makeStore := range map[string]func(*testing.T) storeport.Store{
 		"memory": func(*testing.T) storeport.Store { return store.NewMemory() },
 		"sqlite": sqliteFactory(t),
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := makeStore(t)
-			empty, err := s.ListRuns(context.Background())
-			if err != nil || empty == nil || len(empty) != 0 {
-				t.Fatalf("empty ListRuns() = %#v, %v; want non-nil empty slice", empty, err)
+			empty, err := s.ListRuns(context.Background(), storeport.RunListQuery{Limit: 2})
+			if err != nil || empty.Runs == nil || len(empty.Runs) != 0 || empty.HasMore {
+				t.Fatalf("empty ListRuns() = %#v, %v; want non-nil empty page", empty, err)
 			}
-			for _, id := range []domain.RunID{"run-b", "run-a"} {
-				if err := s.CreateRun(context.Background(), domain.Run{ID: id}); err != nil {
+			updated := time.Unix(1700000000, 0).UTC()
+			for _, run := range []domain.Run{
+				{ID: "run-b", UpdatedAt: updated},
+				{ID: "run-old", UpdatedAt: updated.Add(-time.Hour)},
+				{ID: "run-a", UpdatedAt: updated},
+				{ID: "run-new", UpdatedAt: updated.Add(time.Hour)},
+			} {
+				if err := s.CreateRun(context.Background(), run); err != nil {
 					t.Fatal(err)
 				}
 			}
-			runs, err := s.ListRuns(context.Background())
-			if err != nil || len(runs) != 2 || runs[0].ID != "run-a" || runs[1].ID != "run-b" {
-				t.Fatalf("ListRuns() = %#v, %v", runs, err)
+			page, err := s.ListRuns(context.Background(), storeport.RunListQuery{Limit: 2, Offset: 1})
+			if err != nil || len(page.Runs) != 2 ||
+				page.Runs[0].ID != "run-a" || page.Runs[1].ID != "run-b" || !page.HasMore {
+				t.Fatalf("ListRuns() = %#v, %v", page, err)
+			}
+			fixed := []domain.RunID{"run-old", "run-a"}
+			filtered, err := s.ListRuns(context.Background(), storeport.RunListQuery{
+				Limit: 1, Offset: 1, IDs: fixed,
+			})
+			if err != nil || len(filtered.Runs) != 1 || filtered.Runs[0].ID != "run-old" || filtered.HasMore {
+				t.Fatalf("filtered ListRuns() = %#v, %v", filtered, err)
 			}
 		})
 	}
