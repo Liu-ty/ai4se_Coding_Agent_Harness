@@ -4,21 +4,21 @@
 
 - **Start time:** 2026-07-22 20:10 +08:00
 - **Platform:** Windows (win32), Go 1.26.5
-- **Repository:** `F:\codes\ai4se-cold-start`
+- **Repository:** `<cold-start-worktree>`
 - **Experiment branch:** `cold-start/opencode-clean-20260722-rerun`
-- **Worktree:** `F:\codes\ai4se\.git\worktrees\ai4se-cold-start`
+- **Worktree:** `<main-repository>/.git/worktrees/ai4se-cold-start`
 - **Agent:** Sisyphus (OhMyOpenCode, deepseek-v4-pro)
 
 ## 2. Hard Gate Verification
 
 | Check | Expected | Actual | Status |
 |-------|----------|--------|--------|
-| Repo root | `F:\codes\ai4se-cold-start` | `F:/codes/ai4se-cold-start` | ✅ PASS |
+| Repo root | `<cold-start-worktree>` | `<cold-start-worktree>` | ✅ PASS |
 | Branch | `cold-start/opencode-clean-20260722-rerun` | `cold-start/opencode-clean-20260722-rerun` | ✅ PASS |
 | HEAD | `dee5d29eeab76a08d7238b7f3f7dc43435d31240` | `dee5d29eeab76a08d7238b7f3f7dc43435d31240` | ✅ PASS |
 | Clean status | Empty | Empty | ✅ PASS |
 | No upstream | No upstream | No upstream for this branch | ✅ PASS |
-| Isolated worktree | Not main worktree | `F:/codes/ai4se/.git/worktrees/ai4se-cold-start` | ✅ PASS |
+| Isolated worktree | Not main worktree | `<main-repository>/.git/worktrees/ai4se-cold-start` | ✅ PASS |
 
 **Commands executed:**
 ```powershell
@@ -68,7 +68,7 @@ git rev-parse --git-dir
 
 **Output:**
 ```
-github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain: no non-test Go files in F:\codes\ai4se-cold-start\internal\domain
+github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain: no non-test Go files in <cold-start-worktree>\internal\domain
 FAIL	github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain [build failed]
 FAIL
 ```
@@ -115,7 +115,7 @@ deviations are disclosed in Sections 9 and 14.3.
 
 **Output:**
 ```
-github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/config: no non-test Go files in F:\codes\ai4se-cold-start\internal\config
+github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/config: no non-test Go files in <cold-start-worktree>\internal\config
 FAIL	github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/config [build failed]
 FAIL
 ```
