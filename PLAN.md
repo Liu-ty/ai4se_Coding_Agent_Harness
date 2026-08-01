@@ -1550,7 +1550,7 @@ git commit -m "feat: ship local CLI and mock mechanism demo"
 
 ---
 
-### Task 18: One-Command Tests, CI, Releases, Container, and Documentation
+### Task 18: One-Command Tests, CI, Releases, Container, and Documentation — complete (`04c12e3`)
 
 **Files:**
 - Create: `scripts/test.ps1`
@@ -1574,16 +1574,16 @@ git commit -m "feat: ship local CLI and mock mechanism demo"
 - Consumes: all prior build/test commands and the mock-only demo binary.
 - Produces: one-command verification per target shell, GitHub Actions `unit-test`, Windows/Linux release artifacts, GHCR demo image, Ubuntu deployment files, and complete operator documentation.
 
-- [ ] **Step 1: Write failing release/container contract tests**
+- [x] **Step 1: Write failing release/container contract tests**
 
 Mark `container_contract_test.go` with `//go:build integration`. Test that the demo binary starts without writable root, serves `/healthz`, returns 404 for credential/custom-run routes, writes only beneath its tmpfs path, and exits cleanly on SIGTERM. In the untagged workflow contract test, parse workflow YAML and assert a job key exactly named `unit-test` with both `ubuntu-latest` and `windows-latest` matrix entries.
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test -tags=integration ./internal/demo -run 'Container|Workflow' -v`  
 Expected: FAIL because workflows/container files are absent.
 
-- [ ] **Step 3: Implement one-command developer verification**
+- [x] **Step 3: Implement one-command developer verification**
 
 `scripts/test.ps1` and `scripts/test.sh` both run, in order: frontend unit tests, frontend production build into `internal/httpapi/webdist`, `go test ./...`, `go vet ./...`, and browser E2E. They stop on first nonzero exit and never print environment variables. Document:
 
@@ -1595,19 +1595,19 @@ Expected: FAIL because workflows/container files are absent.
 ./scripts/test.sh
 ```
 
-- [ ] **Step 4: Implement GitHub CI and release workflows**
+- [x] **Step 4: Implement GitHub CI and release workflows**
 
 `ci.yml` jobs: `unit-test` matrix (Windows/Ubuntu), `frontend-test`, `security-test`, `integration-test`, `build`, `docker-build`, and `e2e`. Every Go-compiling job runs `npm ci` and `npm run build` first so embedded assets exist. Pin action major versions and use least permissions. `release.yml` triggers on `v*` tags, builds `ai4se-harness_windows_amd64.exe` and `ai4se-harness_linux_amd64`, writes SHA-256 checksums, uploads GitHub Release assets, and pushes `ghcr.io/liu-ty/ai4se_coding_agent_harness:<tag>` plus immutable digest metadata.
 
-- [ ] **Step 5: Build the mock-only production image and deployment config**
+- [x] **Step 5: Build the mock-only production image and deployment config**
 
 Multi-stage Dockerfile builds Node assets, then the Go demo binary, then copies only the binary and CA certificates into a non-root minimal image. Entrypoint is `serve --profile demo`. Compose sets read-only root, tmpfs, `cap_drop: [ALL]`, `no-new-privileges`, PID/memory/CPU limits, and loopback exposure to Caddy. Caddy uses `{$AI4SE_DOMAIN}` as the exact site label, obtains HTTPS automatically, and proxies only to demo.
 
-- [ ] **Step 6: Write complete delivery documentation**
+- [x] **Step 6: Write complete delivery documentation**
 
 README sections exactly include: Overview, Why This Exists, Architecture, Installation, Windows Quickstart, Linux Quickstart, Configuration, Validation Pipeline, Permission Profiles, Credential Security, Running Locally, Public Demo, Distribution, Directory Structure, Security Boundaries, Known Limitations, Development, Testing, CI/CD, Deployment, Third-Party Licenses. `SECURITY.md` explains trusted-local-repository boundary and vulnerability reporting. `THIRD_PARTY_LICENSES.md` records every dependency and Open Design attribution. Project license is Apache-2.0.
 
-- [ ] **Step 7: Run full verification and inspect fresh-machine artifacts**
+- [x] **Step 7: Run full verification and inspect fresh-machine artifacts**
 
 Run:
 
@@ -1621,7 +1621,7 @@ docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m ai4se-harness
 
 Expected: all tests/builds PASS; container JSON says `SUCCEEDED`; `git grep` and secret scan find no real credentials.
 
-- [ ] **Step 8: Commit and record final CI evidence**
+- [x] **Step 8: Commit and record final CI evidence** (`04c12e3`; local Docker verification pending a Docker-enabled environment)
 
 ```powershell
 git add scripts .github Dockerfile .dockerignore deploy README.md SECURITY.md THIRD_PARTY_LICENSES.md LICENSE PLAN.md AGENT_LOG.md
