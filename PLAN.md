@@ -1467,7 +1467,7 @@ git commit -m "feat: add observable harness web interface"
 
 ---
 
-### Task 17: CLI Composition Roots and Deterministic Mechanism Demo
+### Task 17: CLI Composition Roots and Deterministic Mechanism Demo — complete (`94f678c`)
 
 **Files:**
 - Create: `cmd/ai4se-harness/main.go`
@@ -1486,7 +1486,7 @@ git commit -m "feat: add observable harness web interface"
 - Consumes: local app/API composition, embedded `internal/httpapi/webdist`, mock provider/executor/store.
 - Produces: `serve`, `run`, `credentials`, and `demo feedback-loop` commands plus a compile-time mock-only demo profile.
 
-- [ ] **Step 1: Write the failing mechanism-demo test**
+- [x] **Step 1: Write the failing mechanism-demo test**
 
 ```go
 func TestFeedbackLoopScenarioProvesRequiredMechanisms(t *testing.T) {
@@ -1505,12 +1505,12 @@ func TestFeedbackLoopScenarioProvesRequiredMechanisms(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run: `go test ./internal/demo ./cmd/ai4se-harness -v`  
 Expected: FAIL because commands/demo composition are missing.
 
-- [ ] **Step 3: Implement CLI commands with hidden credential input**
+- [x] **Step 3: Implement CLI commands with hidden credential input**
 
 ```text
 ai4se-harness serve --profile local --repo <path>
@@ -1521,15 +1521,15 @@ ai4se-harness demo feedback-loop --format text|json
 
 Use `golang.org/x/term` for hidden terminal input. Do not accept a key flag or environment echo. `web.go` uses `//go:embed webdist/*` after Vite builds `internal/httpapi/webdist`; local opens a clean bootstrap URL, while demo binds the configured container address and exposes only mock routes.
 
-- [ ] **Step 4: Implement fixed conditional demo scenario**
+- [x] **Step 4: Implement fixed conditional demo scenario**
 
 Decision sequence is feedback-dependent: initial raw-shell request → on `POLICY_DENIED`, incomplete patch → on `TEST_FAILURE`, corrected patch → `finish`. Mock executor/checker returns deterministic evidence. Public workspace is an in-memory map and cannot resolve host paths.
 
-- [ ] **Step 5: Prove demo composition excludes real capabilities**
+- [x] **Step 5: Prove demo composition excludes real capabilities**
 
 Add tests that inspect registered tools/routes/types and fail if `Local`, keyring/vault, credential routes, custom endpoints, or `os/exec`-backed executor are reachable. Run with network disabled in CI.
 
-- [ ] **Step 6: Run green and commit**
+- [x] **Step 6: Run green and commit** (`94f678c`)
 
 Run:
 
