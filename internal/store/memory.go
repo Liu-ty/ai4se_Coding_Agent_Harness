@@ -244,6 +244,9 @@ func (s *MemoryStore) PutArtifact(ctx context.Context, artifact domain.Artifact)
 	if _, ok := s.runs[artifact.RunID]; !ok {
 		return storeport.ErrRunNotFound
 	}
+	if existing, ok := s.artifacts[artifact.ID]; ok && existing.RunID != artifact.RunID {
+		return storeport.ErrArtifactExists
+	}
 	s.artifacts[artifact.ID] = cloneArtifact(artifact)
 	return nil
 }

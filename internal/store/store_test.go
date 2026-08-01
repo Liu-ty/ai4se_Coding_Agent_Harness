@@ -169,6 +169,39 @@ func TestStoresRejectArtifactsForMissingRuns(t *testing.T) {
 	}
 }
 
+func TestStoresRejectArtifactIDReuseAcrossRunsWithoutReplacingOriginal(t *testing.T) {
+	for name, newStore := range map[string]factory{
+		"memory": memoryFactory(),
+		"sqlite": sqliteFactory(t),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			ctx := context.Background()
+			for _, id := range []domain.RunID{"run-a", "run-b"} {
+				if err := s.CreateRun(ctx, domain.Run{ID: id, State: domain.StateCreated}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			original := domain.Artifact{ID: "shared", RunID: "run-a", Content: []byte("original")}
+			if err := s.PutArtifact(ctx, original); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.PutArtifact(ctx, domain.Artifact{
+				ID: "shared", RunID: "run-b", Content: []byte("replacement"),
+			}); !errors.Is(err, storeport.ErrArtifactExists) {
+				t.Fatalf("cross-run duplicate error = %v, want ErrArtifactExists", err)
+			}
+			got, err := s.GetArtifact(ctx, "run-a", "shared")
+			if err != nil || string(got.Content) != "original" {
+				t.Fatalf("original artifact = %#v, %v", got, err)
+			}
+			if _, err := s.GetArtifact(ctx, "run-b", "shared"); !errors.Is(err, storeport.ErrArtifactNotFound) {
+				t.Fatalf("second run artifact error = %v", err)
+			}
+		})
+	}
+}
+
 func TestStoresListEventsReturnsNonNilEmptySlice(t *testing.T) {
 	for name, newStore := range map[string]factory{
 		"memory": memoryFactory(),

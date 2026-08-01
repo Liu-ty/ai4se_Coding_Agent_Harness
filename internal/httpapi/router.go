@@ -486,6 +486,10 @@ func (r *Router) mapError(writer http.ResponseWriter, err error, requestID strin
 		r.writeError(writer, http.StatusNotFound, "CREDENTIAL_NOT_FOUND", "credential was not found", requestID)
 	case errors.Is(err, credentials.ErrInvalidCredential):
 		r.writeError(writer, http.StatusBadRequest, "INVALID_CREDENTIAL", "credential reference or value is invalid", requestID)
+	case errors.Is(err, credentials.ErrAlreadyConfigured):
+		r.writeError(writer, http.StatusConflict, "CREDENTIAL_CONFLICT", "credential is already configured", requestID)
+	case errors.Is(err, credentials.ErrUnavailable), errors.Is(err, credentials.ErrLocked):
+		r.writeError(writer, http.StatusServiceUnavailable, "CREDENTIAL_STORE_UNAVAILABLE", "credential store is unavailable", requestID)
 	case errors.Is(err, app.ErrPreflightFailed):
 		r.writeError(writer, http.StatusUnprocessableEntity, "PREFLIGHT_FAILED", "run preflight failed", requestID)
 	case errors.Is(err, app.ErrRepoBusy), errors.Is(err, app.ErrRunTerminal),

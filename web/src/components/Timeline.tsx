@@ -9,7 +9,7 @@ function displayTimestamp(value?: string) {
   if (!value) return "Timestamp unavailable";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.valueOf())) return "Timestamp unavailable";
-  return parsed.toISOString().replace("T", " ").replace(".000Z", " UTC");
+  return parsed.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
 }
 
 export function Timeline({ events, simulated = false }: { events: RunEvent[]; simulated?: boolean }) {
@@ -38,7 +38,8 @@ export function Timeline({ events, simulated = false }: { events: RunEvent[]; si
               Mutations {budgets.mutations.used} / {budgets.mutations.limit}
             </div>}
           {evidence.length > 0 && <>
-            <button className="quiet" onClick={() => setExpanded((value) => ({
+            <button type="button" className="quiet" aria-expanded={expanded[event.sequence] === true}
+              onClick={() => setExpanded((value) => ({
               ...value, [event.sequence]: !value[event.sequence],
             }))}>{expanded[event.sequence] ? "Hide redacted evidence" : "Show redacted evidence"}</button>
             {expanded[event.sequence] &&

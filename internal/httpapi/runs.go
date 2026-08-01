@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/app"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
@@ -32,8 +33,8 @@ type runResponse struct {
 	Task         string                   `json:"task"`
 	RepoRoot     string                   `json:"repo_root"`
 	CurrentStage string                   `json:"current_stage"`
-	CreatedAt    any                      `json:"created_at"`
-	UpdatedAt    any                      `json:"updated_at"`
+	CreatedAt    time.Time                `json:"created_at"`
+	UpdatedAt    time.Time                `json:"updated_at"`
 }
 
 type runPageResponse struct {
@@ -240,6 +241,33 @@ func (r *Router) decodeJSON(
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
+		r.writeDecodeError(writer, err, requestID)
+		return false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errInvalidJSON
+		}
+		r.writeDecodeError(writer, err, requestID)
+		return false
+	}
+	return true
+}
+
+func (r *Router) decodeOptionalJSON(
+	writer http.ResponseWriter,
+	request *http.Request,
+	requestID string,
+	target any,
+) bool {
+	request.Body = http.MaxBytesReader(writer, request.Body, r.maxBody)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		if errors.Is(err, io.EOF) {
+			return true
+		}
 		r.writeDecodeError(writer, err, requestID)
 		return false
 	}

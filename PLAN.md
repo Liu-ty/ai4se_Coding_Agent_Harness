@@ -1382,7 +1382,11 @@ git commit -m "feat: expose secure local run API and events"
 - Create: `web/package-lock.json`
 - Create: `web/tsconfig.json`
 - Create: `web/vite.config.ts`
+- Create: `web/vitest.config.ts`
+- Create: `web/playwright.config.ts`
 - Create: `web/src/main.tsx`
+- Create: `web/src/App.tsx`
+- Create: `web/src/styles/tokens.css`
 - Create: `web/src/api/client.ts`
 - Create: `web/src/api/types.ts`
 - Create: `web/src/pages/Dashboard.tsx`
@@ -1393,9 +1397,14 @@ git commit -m "feat: expose secure local run API and events"
 - Create: `web/src/components/Timeline.tsx`
 - Create: `web/src/components/ApprovalPanel.tsx`
 - Create: `web/src/components/DiffViewer.tsx`
-- Create: `web/src/styles/tokens.css`
+- Create: `web/src/components/StatusLabel.tsx`
+- Test: `web/src/api/client.test.ts`
+- Test: `web/src/App.test.tsx`
+- Test: `web/src/components/components.test.tsx`
+- Test: `web/src/pages/pages.test.tsx`
 - Test: `web/src/**/*.test.tsx`
 - Test: `web/e2e/run.spec.ts`
+- Create: `web/e2e/server/main.go`
 - Modify: `AGENT_LOG.md`
 
 **Interfaces:**

@@ -38,6 +38,20 @@ type fakeApplication struct {
 	terminate bool
 }
 
+type errorCredentialService struct {
+	statusErr error
+	addErr    error
+}
+
+func (s *errorCredentialService) Add(context.Context, credentials.Ref, []byte) error {
+	return s.addErr
+}
+func (*errorCredentialService) Update(context.Context, credentials.Ref, []byte) error { return nil }
+func (s *errorCredentialService) Status(context.Context, credentials.Ref) (credentials.Status, error) {
+	return credentials.Status{}, s.statusErr
+}
+func (*errorCredentialService) Clear(context.Context, credentials.Ref) error { return nil }
+
 func (f *fakeApplication) CreateRun(_ context.Context, request app.CreateRunRequest) (domain.Run, error) {
 	if f.createErr != nil {
 		return domain.Run{}, f.createErr
@@ -91,7 +105,7 @@ func (f *fakeApplication) Preflight(_ context.Context, _ app.CreateRunRequest) a
 func TestLocalBootstrapIsOneTimeAndSetsStrictCookie(t *testing.T) {
 	api, _, _ := newLocalAPI(t)
 	token := api.BootstrapToken()
-	first := httptest.NewRequest(http.MethodGet, "/?bootstrap="+token, nil)
+	first := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/?bootstrap="+token, nil)
 	first.Host = localHost
 	rr := httptest.NewRecorder()
 	api.ServeHTTP(rr, first)
@@ -111,7 +125,7 @@ func TestLocalBootstrapIsOneTimeAndSetsStrictCookie(t *testing.T) {
 		t.Fatal("session was not exchanged for a clean redirect")
 	}
 
-	second := httptest.NewRequest(http.MethodGet, "/?bootstrap="+token, nil)
+	second := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/?bootstrap="+token, nil)
 	second.Host = localHost
 	secondRR := httptest.NewRecorder()
 	api.ServeHTTP(secondRR, second)
@@ -122,13 +136,13 @@ func TestBootstrapRedirectReachesAuthenticatedAppShell(t *testing.T) {
 	api, _, _ := newLocalAPI(t)
 	token := api.BootstrapToken()
 
-	unauthenticated := httptest.NewRequest(http.MethodGet, "/", nil)
+	unauthenticated := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	unauthenticated.Host = localHost
 	unauthenticatedRR := httptest.NewRecorder()
 	api.ServeHTTP(unauthenticatedRR, unauthenticated)
 	assertAPIError(t, unauthenticatedRR, http.StatusForbidden, "SESSION_REQUIRED")
 
-	exchange := httptest.NewRequest(http.MethodGet, "/?bootstrap="+token, nil)
+	exchange := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/?bootstrap="+token, nil)
 	exchange.Host = localHost
 	exchangeRR := httptest.NewRecorder()
 	api.ServeHTTP(exchangeRR, exchange)
@@ -140,7 +154,7 @@ func TestBootstrapRedirectReachesAuthenticatedAppShell(t *testing.T) {
 		t.Fatalf("bootstrap cookies = %#v", cookies)
 	}
 
-	clean := httptest.NewRequest(http.MethodGet, exchangeRR.Header().Get("Location"), nil)
+	clean := httptest.NewRequestWithContext(t.Context(), http.MethodGet, exchangeRR.Header().Get("Location"), nil)
 	clean.Host = localHost
 	clean.AddCookie(cookies[0])
 	cleanRR := httptest.NewRecorder()
@@ -149,7 +163,7 @@ func TestBootstrapRedirectReachesAuthenticatedAppShell(t *testing.T) {
 		t.Fatalf("clean root = %d, body = %q", cleanRR.Code, cleanRR.Body.String())
 	}
 
-	reuse := httptest.NewRequest(http.MethodGet, "/?bootstrap="+token, nil)
+	reuse := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/?bootstrap="+token, nil)
 	reuse.Host = localHost
 	reuse.AddCookie(cookies[0])
 	reuseRR := httptest.NewRecorder()
@@ -369,7 +383,7 @@ func TestListRunsRejectsInvalidPaginationAndRequiresSession(t *testing.T) {
 		})
 	}
 
-	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v1/runs", nil)
+	unauthenticated := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/runs", nil)
 	unauthenticated.Host = localHost
 	unauthenticatedRR := httptest.NewRecorder()
 	api.ServeHTTP(unauthenticatedRR, unauthenticated)
@@ -617,18 +631,18 @@ func TestDemoCapabilitiesPruneLocalAndNonFixedRoutes(t *testing.T) {
 		{http.MethodGet, "/api/v1/runs/not-fixed/events"},
 	} {
 		rr := httptest.NewRecorder()
-		api.ServeHTTP(rr, httptest.NewRequest(test.method, test.path, nil))
+		api.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), test.method, test.path, nil))
 		assertAPIError(t, rr, http.StatusNotFound, "NOT_FOUND")
 	}
 
 	rr := httptest.NewRecorder()
-	api.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/runs/fixed", nil))
+	api.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/runs/fixed", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("fixed demo run status = %d, body = %s", rr.Code, rr.Body.String())
 	}
 
 	listRR := httptest.NewRecorder()
-	api.ServeHTTP(listRR, httptest.NewRequest(http.MethodGet, "/api/v1/runs?offset=1&limit=1", nil))
+	api.ServeHTTP(listRR, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/runs?offset=1&limit=1", nil))
 	if listRR.Code != http.StatusOK {
 		t.Fatalf("demo list status = %d, body = %s", listRR.Code, listRR.Body.String())
 	}
@@ -649,7 +663,7 @@ func TestDemoCapabilitiesPruneLocalAndNonFixedRoutes(t *testing.T) {
 
 func TestHealthzIsPublicAndCORSIsNeverEnabled(t *testing.T) {
 	api, _, _ := newLocalAPI(t)
-	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
 	request.Host = localHost
 	request.Header.Set("Origin", "https://evil.example")
 	rr := httptest.NewRecorder()
@@ -658,6 +672,50 @@ func TestHealthzIsPublicAndCORSIsNeverEnabled(t *testing.T) {
 		t.Fatalf("health response = %d, headers = %#v", rr.Code, rr.Header())
 	}
 	assertJSONContains(t, rr.Body.Bytes(), `"status":"ok"`)
+}
+
+func TestCredentialMutationMapsConflictAndUnavailableErrors(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		service    httpapi.CredentialService
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name: "concurrent add conflict",
+			service: &errorCredentialService{
+				statusErr: credentials.ErrNotFound, addErr: credentials.ErrAlreadyConfigured,
+			},
+			wantStatus: http.StatusConflict, wantCode: "CREDENTIAL_CONFLICT",
+		},
+		{
+			name: "store unavailable", service: &errorCredentialService{statusErr: credentials.ErrUnavailable},
+			wantStatus: http.StatusServiceUnavailable, wantCode: "CREDENTIAL_STORE_UNAVAILABLE",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			api, _, _ := newLocalAPIWithCredentials(t, test.service)
+			cookie := bootstrap(t, api)
+			rr := httptest.NewRecorder()
+			api.ServeHTTP(rr, authorizedRequest(api, cookie, http.MethodPut,
+				"/api/v1/credentials/openai/api.openai.com", `{"secret":"bounded-secret"}`))
+			assertAPIError(t, rr, test.wantStatus, test.wantCode)
+		})
+	}
+}
+
+func TestRejectAcceptsEmptyBodyAsContinueDecision(t *testing.T) {
+	api, application, _ := newLocalAPI(t)
+	cookie := bootstrap(t, api)
+	rr := httptest.NewRecorder()
+	api.ServeHTTP(rr, authorizedRequest(api, cookie, http.MethodPost,
+		"/api/v1/runs/run-1/approvals/digest-empty/reject", ""))
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("empty reject status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if application.rejected != "run-1:digest-empty" || application.terminate {
+		t.Fatalf("empty reject call = %q terminate=%v", application.rejected, application.terminate)
+	}
 }
 
 func newLocalAPI(t *testing.T) (*httpapi.Router, *fakeApplication, *store.MemoryStore) {
@@ -677,7 +735,7 @@ func newLocalAPIWithRedactor(
 
 func newLocalAPIWithCredentials(
 	t *testing.T,
-	credentialAPI *credentials.Service,
+	credentialAPI httpapi.CredentialService,
 ) (*httpapi.Router, *fakeApplication, *store.MemoryStore) {
 	t.Helper()
 	return newLocalAPIWithCredentialsAndRedactor(t, credentialAPI, nil)
@@ -685,7 +743,7 @@ func newLocalAPIWithCredentials(
 
 func newLocalAPIWithCredentialsAndRedactor(
 	t *testing.T,
-	credentialAPI *credentials.Service,
+	credentialAPI httpapi.CredentialService,
 	redactor *feedback.Redactor,
 ) (*httpapi.Router, *fakeApplication, *store.MemoryStore) {
 	t.Helper()
@@ -723,7 +781,7 @@ func deterministicRandomBytes(size int) []byte {
 
 func bootstrap(t *testing.T, api *httpapi.Router) *http.Cookie {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodGet, "/?bootstrap="+api.BootstrapToken(), nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/?bootstrap="+api.BootstrapToken(), nil)
 	request.Host = localHost
 	rr := httptest.NewRecorder()
 	api.ServeHTTP(rr, request)
@@ -748,7 +806,7 @@ func authorizedRequest(
 	if body != "" {
 		reader = strings.NewReader(body)
 	}
-	request := httptest.NewRequest(method, path, reader)
+	request := httptest.NewRequestWithContext(context.Background(), method, path, reader)
 	request.Host = localHost
 	request.Header.Set("Origin", "http://"+localHost)
 	request.Header.Set("Content-Type", "application/json")

@@ -6,7 +6,6 @@ export default defineConfig({
   fullyParallel: false,
   use: {
     baseURL: "http://127.0.0.1:4174",
-    channel: "chrome",
     trace: "retain-on-failure",
   },
   webServer: {

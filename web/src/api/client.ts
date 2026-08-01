@@ -114,9 +114,9 @@ export class ApiClient {
       let envelope: ErrorEnvelope | undefined;
       try { envelope = await response.json() as ErrorEnvelope; } catch { /* bounded fallback */ }
       throw new ApiError(
-        envelope?.error.code ?? `HTTP_${response.status}`,
-        envelope?.error.message ?? "Request could not be completed",
-        envelope?.error.request_id,
+        envelope?.error?.code ?? `HTTP_${response.status}`,
+        envelope?.error?.message ?? "Request could not be completed",
+        envelope?.error?.request_id,
       );
     }
     return response;
@@ -134,6 +134,7 @@ interface StreamOptions {
 export class RunEventStream {
   private latest?: number;
   private stopped = false;
+  private running = false;
   private abortController?: AbortController;
   private reader?: ReadableStreamDefaultReader<Uint8Array>;
 
@@ -146,49 +147,55 @@ export class RunEventStream {
   }
 
   async run(url: string, maxConnections = 5) {
-    const connect = this.options.connect ?? defaultConnect;
-    let failure: Omit<StreamFailure, "attempts" | "lastSequence"> = {
-      kind: "connect", message: "Event stream unavailable",
-    };
-    for (let attempt = 0; !this.stopped && attempt < maxConnections; attempt += 1) {
-      let phase: StreamFailure["kind"] = "connect";
-      const resuming = this.latest !== undefined;
-      try {
-        this.abortController = new AbortController();
-        const response = await connect(url, this.latest, this.abortController.signal);
-        if (!response.ok) {
-          phase = "http";
-          throw new ApiError(`HTTP_${response.status}`, "Event stream failed");
+    if (this.running || this.stopped) return;
+    this.running = true;
+    try {
+      const connect = this.options.connect ?? defaultConnect;
+      let failure: Omit<StreamFailure, "attempts" | "lastSequence"> = {
+        kind: "connect", message: "Event stream unavailable",
+      };
+      for (let attempt = 0; !this.stopped && attempt < maxConnections; attempt += 1) {
+        let phase: StreamFailure["kind"] = "connect";
+        const resuming = this.latest !== undefined;
+        try {
+          this.abortController = new AbortController();
+          const response = await connect(url, this.latest, this.abortController.signal);
+          if (!response.ok) {
+            phase = "http";
+            throw new ApiError(`HTTP_${response.status}`, "Event stream failed");
+          }
+          phase = "read";
+          await this.consumeResponse(response, () => {
+            this.options.onState(resuming || attempt > 0 ? "reconnected" : "connected");
+          });
+          if (this.stopped) return;
+          failure = { kind: "read", message: "Event stream closed unexpectedly" };
+        } catch (error) {
+          if (this.stopped || (error instanceof DOMException && error.name === "AbortError")) return;
+          failure = {
+            kind: phase,
+            message: error instanceof Error ? error.message : "Event stream unavailable",
+          };
+        } finally {
+          this.reader = undefined;
+          this.abortController = undefined;
         }
-        phase = "read";
-        await this.consumeResponse(response, () => {
-          this.options.onState(resuming || attempt > 0 ? "reconnected" : "connected");
-        });
         if (this.stopped) return;
-        failure = { kind: "read", message: "Event stream closed unexpectedly" };
-      } catch (error) {
-        if (this.stopped || (error instanceof DOMException && error.name === "AbortError")) return;
-        failure = {
-          kind: phase,
-          message: error instanceof Error ? error.message : "Event stream unavailable",
-        };
-      } finally {
-        this.reader = undefined;
-        this.abortController = undefined;
-      }
-      if (this.stopped) return;
-      if (attempt + 1 >= maxConnections) {
-        const terminal = {
-          ...failure, attempts: attempt + 1, lastSequence: this.latest,
-        };
+        if (attempt + 1 >= maxConnections) {
+          const terminal = {
+            ...failure, attempts: attempt + 1, lastSequence: this.latest,
+          };
+          this.options.onState("disconnected");
+          this.options.onState("failed");
+          this.options.onError?.(terminal);
+          return;
+        }
         this.options.onState("disconnected");
-        this.options.onState("failed");
-        this.options.onError?.(terminal);
-        return;
+        this.options.onState("reconnecting");
+        await new Promise((resolve) => setTimeout(resolve, this.options.retryDelay ?? 1000));
       }
-      this.options.onState("disconnected");
-      this.options.onState("reconnecting");
-      await new Promise((resolve) => setTimeout(resolve, this.options.retryDelay ?? 1000));
+    } finally {
+      this.running = false;
     }
   }
 

@@ -142,6 +142,32 @@ it("demo gallery labels every scenario and hides unavailable controls", () => {
   expect(screen.queryByRole("link", { name: /credentials/i })).toBeNull();
 });
 
+it("gives each simulated scenario a run-specific accessible action", () => {
+  render(<DemoGallery fixedRuns={["feedback-loop", "policy-denial"]} onOpen={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "Open SIMULATED feedback-loop demo" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Open SIMULATED policy-denial demo" })).toBeVisible();
+});
+
+it("includes explicit custom-endpoint confirmation in preflight requests", async () => {
+  const onPreflight = vi.fn().mockResolvedValue({
+    ok: false, findings: [], repo_root: "C:\\repo", baseline_commit: "", baseline_diff_hash: "",
+  });
+  render(<NewRun onPreflight={onPreflight} onCreate={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText("Repository path"), { target: { value: "C:\\repo" } });
+  fireEvent.change(screen.getByLabelText("Task description"), { target: { value: "Repair" } });
+  fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "openai" } });
+  fireEvent.change(screen.getByLabelText("Model"), { target: { value: "gpt-test" } });
+  fireEvent.change(screen.getByLabelText("Endpoint"), {
+    target: { value: "https://gateway.example.test/v1/chat/completions" },
+  });
+  await userEvent.click(screen.getByLabelText("Confirm this custom endpoint"));
+  await userEvent.click(screen.getByRole("button", { name: "Validate preflight" }));
+  expect(onPreflight).toHaveBeenCalledWith(expect.objectContaining({
+    endpoint: "https://gateway.example.test/v1/chat/completions",
+    confirm_custom_endpoint: true,
+  }), expect.any(AbortSignal));
+});
+
 it("supports a keyboard-only supervised run draft", async () => {
   const onCreate = vi.fn();
   const report: PreflightReport = {

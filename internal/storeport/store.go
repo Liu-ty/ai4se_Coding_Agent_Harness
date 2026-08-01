@@ -13,6 +13,7 @@ var (
 	ErrEmptyRunID       = errors.New("run ID is required")
 	ErrEmptyEventType   = errors.New("event type is required")
 	ErrEmptyArtifactID  = errors.New("artifact ID is required")
+	ErrArtifactExists   = errors.New("artifact ID belongs to another run")
 	ErrArtifactNotFound = errors.New("artifact not found")
 	ErrRunAlreadyExists = errors.New("run already exists")
 	ErrRunNotFound      = errors.New("run not found")

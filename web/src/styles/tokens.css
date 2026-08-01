@@ -10,7 +10,7 @@
   --success: #18794e;
   --warning: #8a6100;
   --danger: #b42318;
-  --font: Inter, "Segoe UI", system-ui, sans-serif;
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
   --mono: "Berkeley Mono", "Cascadia Mono", Consolas, monospace;
   font-family: var(--font);
   color: var(--text);
@@ -33,6 +33,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   background: var(--text); color: white; font-family: var(--mono); }
 nav { display: grid; gap: 4px; }
 nav button { border-color: transparent; background: transparent; text-align: left; }
+nav button[aria-current="page"] { border-color: var(--accent); background: var(--panel); }
 .sidebar small { margin-top: auto; color: var(--muted); }
 .workspace { min-width: 0; }
 .topbar { min-height: 64px; position: sticky; top: 0; z-index: 2; display: flex; align-items: center;
@@ -60,6 +61,8 @@ p { overflow-wrap: anywhere; }
 .table-scroll { overflow-x: auto; }
 .error-panel { border-color: #f0b4ae; background: #fff8f7; }
 label { display: grid; gap: 6px; font-weight: 600; }
+.checkbox { grid-template-columns: auto 1fr; align-items: center; }
+.checkbox input { width: auto; }
 input, select, textarea { width: 100%; border: 1px solid #b8bdc5; border-radius: 6px; padding: 10px 12px; background: white; }
 textarea { min-height: 100px; resize: vertical; }
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, .6fr); gap: 12px; }
@@ -81,7 +84,8 @@ textarea { min-height: 100px; resize: vertical; }
   font-weight: 600; letter-spacing: .03em; }
 .sim-label { display: inline-block; margin-bottom: 8px; font: 12px var(--mono); }
 .notice { color: var(--warning); }
-table { width: 100%; border-collapse: collapse; } th, td { padding: 10px; border-top: 1px solid var(--border); text-align: left; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px; border-top: 1px solid var(--border); text-align: left; }
 @media (max-width: 760px) {
   .shell { display: block; }.sidebar { position: static; width: 100%; height: auto; }
   .sidebar nav { display: flex; overflow-x: auto; }.sidebar small { display: none; }

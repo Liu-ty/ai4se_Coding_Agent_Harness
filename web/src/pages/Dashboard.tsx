@@ -12,7 +12,8 @@ export function Dashboard({ runs, state, error, onOpen, onRetry }: {
   onOpen: (id: string) => void;
   onRetry: () => void;
 }) {
-  const active = runs.filter((run) => !terminalStates.has(run.state)).length;
+  const active = runs.filter((run) => !terminalStates.has(run.state) &&
+    run.state !== "AWAITING_APPROVAL").length;
   const approvals = runs.filter((run) => run.state === "AWAITING_APPROVAL").length;
   const terminal = runs.filter((run) => terminalStates.has(run.state)).length;
   const chartMaximum = Math.max(active, approvals, terminal, 1);

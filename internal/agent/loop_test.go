@@ -181,7 +181,8 @@ func TestApprovalRequiredPublishesRedactedBoundProductionRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	patchText := "--- a/bug.go\n+++ b/bug.go\n@@ -1 +1 @@ " + canary + "\n-old\n+" +
-		strings.Repeat("x", 12<<10) + "\n"
+		strings.Repeat("x", 12<<10) +
+		"\n--- a/obsolete.go\n+++ /dev/null\n@@ -1 +0,0 @@\n-delete me\n"
 	patchArgs, err := json.Marshal(map[string]string{"patch": patchText})
 	if err != nil {
 		t.Fatal(err)
@@ -233,7 +234,8 @@ func TestApprovalRequiredPublishesRedactedBoundProductionRequest(t *testing.T) {
 		strings.Contains(display.Patch.Preview, "+xxxxxxxx") {
 		t.Fatalf("canonical redacted action = %#v", request.Action)
 	}
-	if len(request.AffectedFiles) != 1 || request.AffectedFiles[0] != "bug.go" {
+	if len(request.AffectedFiles) != 2 || request.AffectedFiles[0] != "bug.go" ||
+		request.AffectedFiles[1] != "obsolete.go" {
 		t.Fatalf("affected files = %#v", request.AffectedFiles)
 	}
 	if request.Risk != policy.RiskNormal || request.RiskReason == "" {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/feedback"
@@ -169,6 +170,9 @@ func bounded(value string, limit int) string {
 	if len(value) <= limit {
 		return value
 	}
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
 	return value[:limit]
 }
 
@@ -185,15 +189,20 @@ func affectedFiles(action domain.Action) []string {
 		files[args.Path] = struct{}{}
 	}
 	if action.Kind == "apply_patch" {
+		var oldPath string
 		for _, line := range strings.Split(args.Patch, "\n") {
-			if !strings.HasPrefix(line, "+++ ") {
-				continue
+			switch {
+			case strings.HasPrefix(line, "--- "):
+				oldPath = patchHeaderPath(strings.TrimPrefix(line, "--- "), "a/")
+			case strings.HasPrefix(line, "+++ "):
+				newPath := patchHeaderPath(strings.TrimPrefix(line, "+++ "), "b/")
+				if newPath != "" {
+					files[newPath] = struct{}{}
+				} else if oldPath != "" {
+					files[oldPath] = struct{}{}
+				}
+				oldPath = ""
 			}
-			fields := strings.Fields(strings.TrimPrefix(line, "+++ "))
-			if len(fields) == 0 || fields[0] == "/dev/null" {
-				continue
-			}
-			files[strings.TrimPrefix(fields[0], "b/")] = struct{}{}
 		}
 	}
 	result := make([]string, 0, len(files))
@@ -202,4 +211,12 @@ func affectedFiles(action domain.Action) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func patchHeaderPath(header string, prefix string) string {
+	fields := strings.Fields(header)
+	if len(fields) == 0 || fields[0] == "/dev/null" {
+		return ""
+	}
+	return strings.TrimPrefix(fields[0], prefix)
 }

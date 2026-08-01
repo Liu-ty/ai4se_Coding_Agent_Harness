@@ -42,8 +42,12 @@ async function fillRunWithKeyboard(page: Page, repoRoot: string, task: string) {
   await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
   await page.keyboard.press("Tab");
-  await expect(page.getByLabel("Endpoint")).toBeFocused();
+  await expect(page.getByLabel("Endpoint", { exact: true })).toBeFocused();
   await page.keyboard.type("https://api.openai.com");
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Confirm this custom endpoint")).toBeFocused();
+  await page.keyboard.press("Space");
+  await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "Validate preflight" })).toBeFocused();
@@ -187,7 +191,7 @@ test("Go demo router exposes only fixed SIMULATED data and prunes mutations", as
   await page.goto(`${demoURL}/`);
   await expect(page.getByRole("heading", { name: "Demo Gallery" })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
-  await page.getByRole("button", { name: "Open SIMULATED demo" }).click();
+  await page.getByRole("button", { name: "Open SIMULATED demo-feedback demo" }).click();
   await expect(page.getByText("POLICY_DENIED")).toBeVisible();
   await expect(page.getByText("TEST_FAILURE")).toBeVisible();
   await expect(page.getByText("ACTION_CHANGED")).toBeVisible();

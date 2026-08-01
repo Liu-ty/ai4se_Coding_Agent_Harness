@@ -1,8 +1,21 @@
 export type PermissionProfile = "review" | "supervised" | "workspace-auto";
 
+export type RunState =
+  | "CREATED"
+  | "PREFLIGHT"
+  | "BASELINE_VALIDATING"
+  | "DECIDING"
+  | "EXECUTING"
+  | "VALIDATING"
+  | "FINAL_VALIDATING"
+  | "AWAITING_APPROVAL"
+  | "SUCCEEDED"
+  | "REVIEW_COMPLETE"
+  | "STOPPED";
+
 export interface Run {
   id: string;
-  state: string;
+  state: RunState;
   profile: PermissionProfile;
   task: string;
   repo_root: string;
@@ -63,7 +76,7 @@ export interface CredentialStatus {
 }
 
 export interface ErrorEnvelope {
-  error: { code: string; message: string; request_id: string };
+  error?: { code?: string; message?: string; request_id?: string };
 }
 
 export type ConnectionState =

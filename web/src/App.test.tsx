@@ -17,7 +17,10 @@ const run = {
   updated_at: "2026-07-29T00:01:00Z",
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  window.history.replaceState({}, "", "/");
+});
 
 it("loads real run pages, selected snapshot, SSE event, and referenced diff artifact", async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -31,7 +34,7 @@ it("loads real run pages, selected snapshot, SSE event, and referenced diff arti
         payload: {
           summary: "Exact patch requires approval", digest: "sha256:abc",
           action: { kind: "apply_patch", args: { patch: "bounded" } },
-          affected_files: ["src/sum.ts"], risk: "medium",
+          affected_files: ["src/sum.ts"], risk: "GUARDED",
           risk_reason: "Tracked source change",
           artifact_id: "diff-1", budgets: { decisions: { used: 1, limit: 30 } },
         },
@@ -145,7 +148,7 @@ it.each([
     digest: "sha256:closed",
     action: { kind: "apply_patch", args: { patch: "bounded" } },
     affected_files: ["src/sum.ts"],
-    risk: "medium",
+    risk: "GUARDED",
     risk_reason: "Tracked source change",
   };
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -168,6 +171,47 @@ it.each([
   await userEvent.click(await screen.findByRole("button", { name: "run-1" }));
   expect(await screen.findByText("Latest sequence: 2. Reconnect resumes from this cursor.")).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Approval required" })).toBeNull();
+});
+
+it("preserves approval events and their cursor after a local decision", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path.includes("?offset=")) return Response.json({
+      runs: [run], page: { offset: 0, limit: 50, returned: 1, has_more: false },
+    });
+    if (path.endsWith("/events")) return new Response(
+      "id: 7\nevent: ApprovalRequired\ndata: " + JSON.stringify({
+        at: "2026-07-29T00:02:00Z",
+        payload: {
+          digest: "sha256:preserve", action: { kind: "apply_patch", args: {} },
+          affected_files: ["src/sum.ts"], risk: "GUARDED", risk_reason: "Tracked change",
+        },
+      }) + "\n\n",
+    );
+    if (path.includes("/approve")) return new Response(null, { status: 204 });
+    if (path.endsWith("/run-1")) return Response.json(run);
+    throw new Error(`unexpected request ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App runtimeConfig={localRuntime} />);
+  await userEvent.click(await screen.findByRole("button", { name: "run-1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Approve once" }));
+  expect(await screen.findByText("#7 ApprovalRequired")).toBeVisible();
+  expect(screen.getByText("Latest sequence: 7. Reconnect resumes from this cursor.")).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Approval required" })).toBeNull();
+});
+
+it("does not enable demo capabilities for unrelated query parameters", async () => {
+  window.history.replaceState({}, "", "/?nofixture=demo");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+    runs: [], page: { offset: 0, limit: 50, returned: 0, has_more: false },
+  })));
+  render(<App />);
+  expect(await screen.findByRole("button", { name: /New Run/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /Dashboard/ })).toHaveAttribute("aria-current", "page");
+  await userEvent.click(screen.getByRole("button", { name: /New Run/ }));
+  expect(screen.getByRole("button", { name: /New Run/ })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("button", { name: /Dashboard/ })).not.toHaveAttribute("aria-current");
 });
 
 it("keeps run B cancellation enabled while run A has a delayed cancellation", async () => {

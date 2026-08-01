@@ -42,7 +42,11 @@ export function NewRun({ onPreflight, onCreate }: {
   const update = <K extends keyof CreateRunRequest>(name: K, value: CreateRunRequest[K]) => {
     generationRef.current += 1;
     preflightControllerRef.current?.abort();
-    setDraft((current) => ({ ...current, [name]: value }));
+    setDraft((current) => ({
+      ...current,
+      [name]: value,
+      ...(name === "endpoint" ? { confirm_custom_endpoint: false } : {}),
+    }));
     setPreflight(undefined);
     setValidatedFingerprint("");
     setValidationState("idle");
@@ -119,6 +123,11 @@ export function NewRun({ onPreflight, onCreate }: {
         </div>
         <details><summary>Endpoint options</summary>
           <label>Endpoint<input {...field("endpoint")} placeholder="Provider default" /></label>
+          <label className="checkbox"><input type="checkbox"
+            checked={draft.confirm_custom_endpoint}
+            disabled={!draft.endpoint}
+            onChange={(event) => update("confirm_custom_endpoint", event.target.checked)} />
+            Confirm this custom endpoint</label>
         </details>
       </form>
       <aside className="panel preflight-rail" aria-live="polite">

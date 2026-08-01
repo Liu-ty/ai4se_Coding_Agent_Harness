@@ -12,9 +12,9 @@ export function DemoGallery({ fixedRuns, onOpen }: {
     </section>}
     <div className="cards">{fixedRuns.map((runId) => <article className="panel demo-card" key={runId}>
       <strong className="sim-label">SIMULATED</strong>
-      <h2>Feedback-loop repair</h2>
+      <h2>{runId}</h2>
       <p>Policy interception, injected validation failure, changed second patch, and objective success.</p>
-      <button onClick={() => onOpen(runId)}>Open SIMULATED demo</button>
+      <button onClick={() => onOpen(runId)}>Open SIMULATED {runId} demo</button>
     </article>)}</div>
     <aside className="panel"><h2>SIMULATED capability boundary</h2>
       <p>Arbitrary run creation, credentials, configuration validation, approval mutations, cancellation,

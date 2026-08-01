@@ -36,13 +36,16 @@ export function RunDetail({ run, events, diff, approval, simulated, connection =
   streamError?: StreamFailure;
   onReconnect?: () => void;
 }) {
-  const budgets = latestBudgets(events);
-  const reason = latestReason(events);
+  const orderedEvents = [...events].sort((left, right) => left.sequence - right.sequence);
+  const budgets = latestBudgets(orderedEvents);
+  const reason = latestReason(orderedEvents);
+  const runTone = run.state === "SUCCEEDED" ? "success" :
+    run.state === "STOPPED" ? "danger" : "neutral";
   return <section>
     {simulated && <div className="sim-banner">◇ SIMULATED — every row and artifact below is a fixed server fixture.</div>}
     <header className="page-head"><div><h1>{simulated ? "SIMULATED · " : ""}{run.id}</h1>
       <p>{run.task}</p></div><div className="actions">
-        <StatusLabel text={run.state} tone={run.state === "SUCCEEDED" ? "success" : "neutral"} />
+        <StatusLabel text={run.state} tone={runTone} />
         {onCancel && <button className="danger" disabled={cancelPending} onClick={onCancel}>
           {cancelPending ? "Cancelling…" : "Cancel run"}</button>}
       </div></header>
@@ -50,7 +53,7 @@ export function RunDetail({ run, events, diff, approval, simulated, connection =
     <div className="detail-grid"><div className="stack">
       {events.length === 0 ? <section className="panel"><h2>Event timeline</h2>
         <p>No server event has been received yet.</p></section> :
-        <Timeline events={events} simulated={simulated} />}
+        <Timeline events={orderedEvents} simulated={simulated} />}
       {diff && <DiffViewer {...diff} />}</div>
       <aside className="stack"><section className="panel"><h2>Budgets</h2>
         {!budgets && <p>Budget data unavailable</p>}
@@ -65,7 +68,7 @@ export function RunDetail({ run, events, diff, approval, simulated, connection =
         <StatusLabel text={connection[0].toUpperCase() + connection.slice(1)}
           tone={connection === "disconnected" || connection === "failed" ? "danger" :
             connection === "reconnecting" ? "warning" : "success"} />
-        <p>Latest sequence: {events.at(-1)?.sequence ?? 0}. Reconnect resumes from this cursor.</p>
+        <p>Latest sequence: {orderedEvents.at(-1)?.sequence ?? 0}. Reconnect resumes from this cursor.</p>
         {streamError && <div role="alert">
           <p>{streamError.message} ({streamError.kind}, {streamError.attempts} attempts).</p>
           {onReconnect && <button onClick={onReconnect}>Reconnect event stream</button>}

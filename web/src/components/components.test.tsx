@@ -6,6 +6,7 @@ import { DiffViewer } from "./DiffViewer";
 import { Timeline } from "./Timeline";
 import { RunDetail } from "../pages/RunDetail";
 import { Dashboard } from "../pages/Dashboard";
+import type { Run } from "../api/types";
 
 const fixtureEvents = [{
   sequence: 8,
@@ -32,7 +33,7 @@ it("approval panel offers exactly one-time approve and reject decisions", async 
   const onDecision = vi.fn();
   render(<ApprovalPanel request={{
     digest: "sha256:abc", action: { kind: "apply_patch", args: { patch: "bounded" } },
-    affectedFiles: ["src/sum.ts"], risk: "medium", riskReason: "Modifies one tracked file",
+    affectedFiles: ["src/sum.ts"], risk: "GUARDED", riskReason: "Modifies one tracked file",
   }} onDecision={onDecision} />);
   await userEvent.click(screen.getByRole("button", { name: "Approve once" }));
   expect(onDecision).toHaveBeenCalledWith("approve", "sha256:abc");
@@ -49,7 +50,7 @@ it.each(["approve", "reject"] as const)(
       digest: "sha256:abc",
       action: { kind: "apply_patch", args: { patch: "bounded" } },
       affectedFiles: ["src/sum.ts"],
-      risk: "medium",
+      risk: "GUARDED",
       riskReason: "Modifies one tracked file",
     }} onDecision={onDecision} />);
     await userEvent.click(screen.getByRole("button", {
@@ -68,7 +69,7 @@ it("approval panel waits for the decision promise", async () => {
     digest: "sha256:abc",
     action: { kind: "apply_patch", args: { patch: "bounded" } },
     affectedFiles: ["src/sum.ts"],
-    risk: "medium",
+    risk: "GUARDED",
     riskReason: "Modifies one tracked file",
   }} onDecision={onDecision} />);
   await userEvent.click(screen.getByRole("button", { name: "Approve once" }));
@@ -95,8 +96,23 @@ it("renders server timestamps, unavailable timestamps, truncation, and SIMULATED
   expect(screen.getAllByText("SIMULATED")).toHaveLength(2);
 });
 
+it("formats fractional timestamps consistently and exposes disclosure state", async () => {
+  render(<Timeline events={[{
+    sequence: 3,
+    type: "FeedbackProduced",
+    at: "2026-07-29T01:02:03.456Z",
+    payload: { evidence: [{ source: "stderr", message: "bounded" }] },
+  }]} />);
+  expect(screen.getByText("2026-07-29 01:02:03 UTC")).toBeVisible();
+  const disclosure = screen.getByRole("button", { name: "Show redacted evidence" });
+  expect(disclosure).toHaveAttribute("type", "button");
+  expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  await userEvent.click(disclosure);
+  expect(disclosure).toHaveAttribute("aria-expanded", "true");
+});
+
 it("derives budgets and terminal reason only from server events", () => {
-  const run = {
+  const run: Run = {
     id: "run-1", state: "SUCCEEDED", profile: "supervised" as const, task: "Repair",
     repo_root: "C:\\repo", current_stage: "final", created_at: "", updated_at: "",
   };
@@ -127,8 +143,26 @@ it("offers cursor-preserving reconnect after the event stream fails", async () =
   expect(reconnect).toHaveBeenCalledOnce();
 });
 
+it("derives detail facts from sequence order and marks stopped runs as danger", () => {
+  render(<RunDetail run={{
+    id: "run-stopped", state: "STOPPED", profile: "supervised", task: "Repair",
+    repo_root: "C:\\repo", current_stage: "final", created_at: "", updated_at: "",
+  }} events={[
+    { sequence: 9, type: "RunStopped", payload: {
+      reason: "USER_CANCELLED", budgets: { decisions: { used: 4, limit: 30 } },
+    } },
+    { sequence: 2, type: "BudgetUpdated", payload: {
+      reason: "STALE", budgets: { decisions: { used: 1, limit: 30 } },
+    } },
+  ]} connection="connected" />);
+  expect(screen.getByText("USER_CANCELLED")).toBeVisible();
+  expect(screen.getByText("Decisions 4 / 30")).toBeVisible();
+  expect(screen.getByText("Latest sequence: 9. Reconnect resumes from this cursor.")).toBeVisible();
+  expect(screen.getByText("STOPPED")).toHaveClass("status-danger");
+});
+
 it("dashboard renders four server-derived KPIs, visualization, activity, and runs", () => {
-  const runs = [{
+  const runs: Run[] = [{
     id: "run-1", state: "SUCCEEDED", profile: "supervised" as const, task: "Repair",
     repo_root: "C:\\repo", current_stage: "final", created_at: "", updated_at: "",
   }];
@@ -137,4 +171,17 @@ it("dashboard renders four server-derived KPIs, visualization, activity, and run
   expect(screen.getByRole("img", { name: /run state distribution/i })).toBeVisible();
   expect(screen.getByRole("region", { name: "Live activity" })).toBeVisible();
   expect(screen.getByRole("button", { name: "run-1" })).toBeVisible();
+});
+
+it("keeps dashboard distribution buckets mutually exclusive", () => {
+  const base: Omit<Run, "id" | "state"> = {
+    profile: "supervised" as const, task: "Repair", repo_root: "C:\\repo",
+    current_stage: "", created_at: "", updated_at: "",
+  };
+  render(<Dashboard runs={[
+    { ...base, id: "active", state: "DECIDING" },
+    { ...base, id: "approval", state: "AWAITING_APPROVAL" },
+    { ...base, id: "done", state: "SUCCEEDED" },
+  ]} state="populated" onOpen={vi.fn()} onRetry={vi.fn()} />);
+  expect(screen.getByText("1 active, 1 awaiting approval, 1 terminal.")).toBeVisible();
 });

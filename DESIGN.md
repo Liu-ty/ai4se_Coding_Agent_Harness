@@ -1,11 +1,11 @@
 # AI4SE Coding Agent Harness · WebUI Design System
 
-This specification adapts the attached Linear system into a fixed light-theme, dense developer-tool interface for the frozen `/api/v1` contract. It is implementation-ready for React 19.2, TypeScript, and Vite 8.1 without changing the product’s safety model.
+This specification records the Open Design `linear-app` system as a fixed light-theme, dense developer-tool interface for the frozen `/api/v1` contract. It is implementation-ready for React 19.2, TypeScript, and Vite 8.1 without changing the product’s safety model.
 
 ## 1. Color
 
 - The theme is fixed light; there is no dark-mode switch and no automatic color-scheme negotiation.
-- Use the attached Linear tokens without introducing a second palette. The light role mapping is: `--fg` for the page canvas, `--accent-on` for raised panels, `--bg` for primary text and dark primary actions, `--meta` for supporting text, and token-derived `color-mix()` values for separators and quiet surfaces.
+- Use the recorded `linear-app` tokens without introducing a second palette. The light role mapping is: `--fg` for the page canvas, `--accent-on` for raised panels, `--bg` for primary text and dark primary actions, `--meta` for supporting text, and token-derived `color-mix()` values for separators and quiet surfaces.
 - `--accent` is reserved for the active navigation item, keyboard focus, and the single highest-priority action in a local decision context. Avoid decorative accent use.
 - Status meaning never depends on color. Every status contains a visible symbol and text, for example `✓ Succeeded`, `! Approval required`, `× Failed`, or `◇ SIMULATED`.
 - Success, warning, and danger tokens may tint a status symbol or bounded state background only. Body text and interactive labels must retain WCAG 2.2 AA contrast.
@@ -49,7 +49,7 @@ This specification adapts the attached Linear system into a fixed light-theme, d
 - `DiffViewer`: is read-only, keyboard focusable, horizontally scrollable where needed, and never masquerades as an editable terminal. The product contains no embedded terminal.
 - `ApprovalPanel`: offers exactly `Approve once` and `Reject`. A submitted decision disables both controls. Permanent allow, remember-this-choice, wildcard scope, and policy editing are prohibited.
 - `CredentialCard`: accepts replacement material only through `type="password"` with appropriate autocomplete. Existing values are represented only by non-secret metadata such as a short ending; reveal and copy-secret controls do not exist.
-- `ConnectionState`: covers disconnected, reconnecting, and reconnected states with icon, text, cursor behavior, and recovery detail. Live changes use a pre-existing polite live region.
+- `ConnectionState`: covers connected, disconnected, failed, reconnecting, and reconnected states with icon, text, cursor behavior, and recovery detail. Live changes use a pre-existing polite live region.
 - `TerminalReason`: records one server-provided terminal reason and explanatory copy. It is not inferred from client state.
 - `DemoCard`: repeats `SIMULATED` in its label and action. Demo mode visibly omits arbitrary local run creation, credentials, config validation, and non-fixed artifacts.
 - Every data-bearing component must support loading, empty, error, populated, and edge states. Loading receives a 15-second delayed notice; errors provide a cause and recovery; empty states provide an explanation and action.
@@ -78,7 +78,7 @@ This specification adapts the attached Linear system into a fixed light-theme, d
 - Trust is expressed through visible constraints: frozen API version, policy profile, budgets, redaction, evidence hashes, read-only diffs, typed events, and explicit terminal reasons.
 - Production and demo are separate modes, never stylistic variants of the same action. Demo must look useful while remaining visibly non-production.
 - The implementation target is React 19.2 + TypeScript + Vite 8.1. Preserve semantic HTML beneath components, prefer native controls, and model API payloads as discriminated unions keyed by typed event names.
-- Keep compressed production assets below 1.5 MiB: use no UI framework runtime, no chart library, inline only small SVGs, subset/self-host fonts where licensing permits, route-split secondary surfaces, and enforce the budget in CI.
+- Keep compressed production assets below 1.5 MiB: use no additional UI component-framework runtime, no chart library, inline only small SVGs, subset/self-host fonts where licensing permits, route-split secondary surfaces, and enforce the budget in CI.
 - Accessibility targets zero serious or critical axe findings, full keyboard operation, logical focus order, visible 3px focus indicators, named landmarks, labeled inputs, accessible charts, and no color-only state.
 
 ## 9. Anti-patterns

@@ -21,6 +21,9 @@ import (
 //go:embed migrations/001_init.sql
 var initialMigration string
 
+//go:embed migrations/002_runs_list_index.sql
+var runsListIndexMigration string
+
 // SQLiteStore persists store records in a local SQLite database.
 type SQLiteStore struct {
 	db    *sql.DB
@@ -65,6 +68,10 @@ func OpenSQLiteWithClock(path string, clock Clock) (*SQLiteStore, error) {
 	if _, err := db.ExecContext(setupCtx, initialMigration); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply initial migration: %w", err)
+	}
+	if _, err := db.ExecContext(setupCtx, runsListIndexMigration); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("apply runs list index migration: %w", err)
 	}
 	return &SQLiteStore{db: db, clock: clock}, nil
 }
@@ -455,13 +462,24 @@ func (s *SQLiteStore) PutArtifact(ctx context.Context, artifact domain.Artifact)
 	if !exists {
 		return storeport.ErrRunNotFound
 	}
-	_, err = s.db.ExecContext(ctx, `
+	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO artifacts (id, run_id, kind, sha256, content, truncated)
 		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET run_id = excluded.run_id, kind = excluded.kind,
-		sha256 = excluded.sha256, content = excluded.content, truncated = excluded.truncated`,
+		ON CONFLICT(id) DO UPDATE SET kind = excluded.kind,
+		sha256 = excluded.sha256, content = excluded.content, truncated = excluded.truncated
+		WHERE artifacts.run_id = excluded.run_id`,
 		artifact.ID, artifact.RunID, artifact.Kind, artifact.SHA256, artifact.Content, artifact.Truncated)
-	return err
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return storeport.ErrArtifactExists
+	}
+	return nil
 }
 
 func (s *SQLiteStore) GetArtifact(

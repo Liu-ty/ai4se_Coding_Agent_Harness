@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -303,13 +304,22 @@ func main() {
 		serveIndex(writer, index, runtimeScript("", true, []string{"demo-feedback"}))
 	})
 	demoHandler := assetWrapper(dist, demoRouter, demoShell, "", nil, nil)
+	localListener, err := net.Listen("tcp", localAddress)
+	if err != nil {
+		panic(err)
+	}
+	demoListener, err := net.Listen("tcp", demoAddress)
+	if err != nil {
+		_ = localListener.Close()
+		panic(err)
+	}
 	go func() {
-		if serveErr := http.ListenAndServe(localAddress, localHandler); serveErr != nil &&
+		if serveErr := http.Serve(localListener, localHandler); serveErr != nil &&
 			!errors.Is(serveErr, http.ErrServerClosed) {
 			panic(serveErr)
 		}
 	}()
-	if serveErr := http.ListenAndServe(demoAddress, demoHandler); serveErr != nil {
+	if serveErr := http.Serve(demoListener, demoHandler); serveErr != nil {
 		panic(serveErr)
 	}
 }

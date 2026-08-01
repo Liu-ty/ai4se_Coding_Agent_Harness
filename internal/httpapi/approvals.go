@@ -32,7 +32,7 @@ func (r *Router) approval(
 	var input struct {
 		Terminate bool `json:"terminate"`
 	}
-	if !r.decodeJSON(writer, request, requestID, &input) {
+	if !r.decodeOptionalJSON(writer, request, requestID, &input) {
 		return
 	}
 	if err := r.application.Reject(request.Context(), runID, digest, input.Terminate); err != nil {

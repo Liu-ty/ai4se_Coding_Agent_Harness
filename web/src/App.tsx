@@ -25,9 +25,10 @@ const localCapabilities = {
 };
 
 function defaultRuntime(): RuntimeConfig {
+  const fixture = new URLSearchParams(location.search).get("fixture");
   return window.__AI4SE_RUNTIME__ ?? {
     csrfToken: undefined,
-    capabilities: location.search.includes("fixture=demo")
+    capabilities: fixture === "demo"
       ? { ...localCapabilities, createRuns: false, cancelRuns: false, approvals: false,
         artifacts: false, configValidation: false, credentials: false, demo: true,
         fixedRuns: ["feedback-loop"] }
@@ -37,7 +38,7 @@ function defaultRuntime(): RuntimeConfig {
 
 type Page = "dashboard" | "new-run" | "run-detail" | "credentials" | "demos";
 
-function approvalFrom(events: RunEvent[]): ApprovalRequest | undefined {
+function approvalFrom(events: RunEvent[], decidedDigests: ReadonlySet<string>): ApprovalRequest | undefined {
   const closingEvents = new Set([
     "ApprovalGranted", "ApprovalRejected", "ReviewComplete", "RunRecovered", "RunStopped",
     "RunSucceeded",
@@ -53,6 +54,7 @@ function approvalFrom(events: RunEvent[]): ApprovalRequest | undefined {
     const action = payload.action;
     if (typeof payload.digest !== "string" || !action || typeof action !== "object" ||
       Array.isArray(action) || typeof (action as Record<string, unknown>).kind !== "string") continue;
+    if (decidedDigests.has(payload.digest)) continue;
     const actionRecord = action as Record<string, unknown>;
     approval = {
       digest: payload.digest,
@@ -93,6 +95,7 @@ export function App({ runtimeConfig, apiClient }: {
   const [selected, setSelected] = useState<Run>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [events, setEvents] = useState<RunEvent[]>([]);
+  const [decidedDigests, setDecidedDigests] = useState<Set<string>>(() => new Set());
   const [connection, setConnection] = useState<ConnectionState>("disconnected");
   const [streamError, setStreamError] = useState<StreamFailure>();
   const [diff, setDiff] = useState<{ content: string; truncated: boolean }>();
@@ -105,6 +108,7 @@ export function App({ runtimeConfig, apiClient }: {
   const streamURLRef = useRef("");
   const selectionGenerationRef = useRef(0);
   const snapshotGenerationRef = useRef(0);
+  const reconnectPendingRef = useRef(false);
 
   const navigate = useCallback((next: Page) => {
     if (next !== "run-detail") {
@@ -173,6 +177,7 @@ export function App({ runtimeConfig, apiClient }: {
     setDetailLoading(true);
     setSelected(undefined);
     setEvents([]);
+    setDecidedDigests(new Set());
     setDiff(undefined);
     setActionError("");
     setStreamError(undefined);
@@ -236,7 +241,7 @@ export function App({ runtimeConfig, apiClient }: {
     try {
       if (decision === "approve") await client.approve(runId, digest);
       else await client.reject(runId, digest, false);
-      setEvents((current) => current.filter((event) => event.payload.digest !== digest));
+      setDecidedDigests((current) => new Set(current).add(digest));
       await refreshSnapshot(runId, selectionGeneration);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Approval decision failed.");
@@ -263,14 +268,17 @@ export function App({ runtimeConfig, apiClient }: {
   };
 
   const approval = runtime.capabilities.approvals && selected?.state === "AWAITING_APPROVAL"
-    ? approvalFrom(events) : undefined;
+    ? approvalFrom(events, decidedDigests) : undefined;
   const declaredDemoRuns = new Set(runtime.capabilities.fixedRuns);
   const demoRuns = runs.filter((run) => declaredDemoRuns.has(run.id)).map((run) => run.id);
   const reconnect = () => {
-    if (!streamRef.current || !streamURLRef.current) return;
+    if (!streamRef.current || !streamURLRef.current || reconnectPendingRef.current) return;
+    reconnectPendingRef.current = true;
     setStreamError(undefined);
     setConnection("reconnecting");
-    void streamRef.current.run(streamURLRef.current);
+    void streamRef.current.run(streamURLRef.current).finally(() => {
+      reconnectPendingRef.current = false;
+    });
   };
 
   return <div className="shell">
@@ -278,10 +286,14 @@ export function App({ runtimeConfig, apiClient }: {
       event.preventDefault(); navigate(runtime.capabilities.demo ? "demos" : "dashboard");
     }}><span aria-hidden="true">A4</span> AI4SE Harness</a>
       <nav aria-label="Primary">
-        {!runtime.capabilities.demo && <button onClick={() => navigate("dashboard")}>▦ Dashboard</button>}
-        {runtime.capabilities.createRuns && <button onClick={() => navigate("new-run")}>＋ New Run</button>}
-        {runtime.capabilities.credentials && <button onClick={() => navigate("credentials")}>⌁ Credentials</button>}
-        <button onClick={() => navigate("demos")}>◇ Demo Gallery</button>
+        {!runtime.capabilities.demo && <button aria-current={page === "dashboard" ? "page" : undefined}
+          onClick={() => navigate("dashboard")}>▦ Dashboard</button>}
+        {runtime.capabilities.createRuns && <button aria-current={page === "new-run" ? "page" : undefined}
+          onClick={() => navigate("new-run")}>＋ New Run</button>}
+        {runtime.capabilities.credentials && <button aria-current={page === "credentials" ? "page" : undefined}
+          onClick={() => navigate("credentials")}>⌁ Credentials</button>}
+        <button aria-current={page === "demos" ? "page" : undefined}
+          onClick={() => navigate("demos")}>◇ Demo Gallery</button>
       </nav>
       <small>API v1 · bounded local interface</small>
     </aside>

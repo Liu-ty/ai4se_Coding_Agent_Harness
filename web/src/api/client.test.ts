@@ -32,6 +32,14 @@ it("lists the bounded run page using the frozen pagination schema", async () => 
   expect(fetchMock).toHaveBeenCalledWith("/api/v1/runs?offset=0&limit=25", expect.any(Object));
 });
 
+it("returns a bounded ApiError when an error response omits its nested envelope", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({}, { status: 502 })));
+  await expect(new ApiClient().listRuns()).rejects.toMatchObject({
+    code: "HTTP_502",
+    message: "Request could not be completed",
+  });
+});
+
 it("reconnects SSE from the latest observed sequence", async () => {
   const requests: string[] = [];
   const states: string[] = [];
@@ -135,6 +143,22 @@ it("bounds default reconnect attempts", async () => {
   });
   await stream.run("/events");
   expect(connect).toHaveBeenCalledTimes(5);
+});
+
+it("does not start a second loop while the same stream is already running", async () => {
+  let resolveConnect!: (response: Response) => void;
+  const connect = vi.fn(() => new Promise<Response>((resolve) => { resolveConnect = resolve; }));
+  const stream = new RunEventStream({
+    connect,
+    onEvent: () => undefined,
+    onState: () => undefined,
+  });
+  const first = stream.run("/events", 1);
+  const second = stream.run("/events", 1);
+  expect(connect).toHaveBeenCalledOnce();
+  stream.stop();
+  resolveConnect(new Response(""));
+  await Promise.all([first, second]);
 });
 
 it("publishes a structured terminal stream failure after bounded retries", async () => {
