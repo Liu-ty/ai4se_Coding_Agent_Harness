@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Foundation PR #1 is merged at `6cad5d1`, `config-store-budget` PR #2 is merged at `712f257`, and `policy-tools` PR #3 is merged at `b4cab7c`. Executor-feedback PR #4 was merged early at `085933e`; its remediation PR #6 was subsequently reviewed and merged at `16e982c` with final head `790e38c`. All three inherited PR #4 threads and all five PR #6 threads are resolved. Duplicate Draft PR #5 is closed as superseded with its head branch retained. Tasks 8-10 are complete, and Task 11 has not started.
+**Status:** Foundation PR #1 is merged at `6cad5d1`, `config-store-budget` PR #2 is merged at `712f257`, and `policy-tools` PR #3 is merged at `b4cab7c`. Executor-feedback PR #4 was merged early at `085933e`; its remediation PR #6 was subsequently reviewed and merged at `16e982c` with final head `790e38c`. All three inherited PR #4 threads and all five PR #6 threads are resolved. Duplicate Draft PR #5 is closed as superseded with its head branch retained. Tasks 1-16 are complete. Tasks 15-16 were merged through PR #11 at `10e99a8` with final head `7b78afc` after all CodeRabbit threads and required checks were resolved; Task 17 has not started.
 
 PR #4's early merge remains an auditable process deviation rather than being rewritten as a normal review closure. PR #6 repaired the three inherited review gaps, added Windows/Linux runtime CI and unsupported-platform rejection gates, and incorporated all follow-up output-drain, cleanup, credential-persistence, and documentation findings. Before merge, fresh Windows verification passed, both required GitHub Actions checks were green, CodeRabbit completed its final review, and every PR #6 thread was resolved. On 2026-07-28, each legacy PR #4 thread received a closure reply linking the remediation evidence and was then resolved. PR #5 contained no unique changes beyond the superseded PR #4 head and was closed without deleting its branch.
 
@@ -1101,7 +1101,7 @@ git commit -m "feat: connect OpenAI-compatible and Anthropic providers"
 
 ---
 
-### Task 13: OS Keyring and Encrypted Vault Credentials — complete (9d4efca)
+### Task 13: OS Keyring and Encrypted Vault Credentials — complete (`9d4efca`)
 
 **PR #9 unresolved-thread follow-up:** Vault status now checks record presence and modification time without requesting the master password, deriving an Argon2id key, or decrypting credential bytes. Actual credential use still performs full authenticated decryption and endpoint binding.
 
@@ -1182,7 +1182,7 @@ git commit -m "feat: store provider credentials securely"
 
 ---
 
-### Task 14: Application Service, Preflight, and Repository Locking — complete (f73a4df)
+### Task 14: Application Service, Preflight, and Repository Locking — complete (`f73a4df`)
 
 **Final review remediation:** Credentials may be sent only to HTTPS endpoints or literal loopback-IP HTTP endpoints; non-default endpoint hosts/ports require explicit confirmation. Repository ownership uses a durable, owner-matched cross-process lease and startup recovery releases only the matching abandoned lease. Agent approval digests include captured baseline commit/diff values, and resumed validation failures return structured feedback to re-decision.
 
@@ -1260,7 +1260,7 @@ git commit -m "feat: orchestrate safe local harness runs"
 
 ---
 
-### Task 15: Versioned HTTP API, SSE, and Local Web Security — complete (10f45b4)
+### Task 15: Versioned HTTP API, SSE, and Local Web Security — complete (`10f45b4`; review follow-ups through `7b78afc`; merged via PR #11 at `10e99a8`)
 
 **Files:**
 - Create: `internal/httpapi/router.go`
@@ -1374,7 +1374,7 @@ git commit -m "feat: expose secure local run API and events"
 
 ---
 
-### Task 16: Open Design React WebUI — complete (8e66b7c)
+### Task 16: Open Design React WebUI — complete (`8e66b7c`; review follow-ups through `7b78afc`; merged via PR #11 at `10e99a8`)
 
 **Files:**
 - Create: `DESIGN.md`

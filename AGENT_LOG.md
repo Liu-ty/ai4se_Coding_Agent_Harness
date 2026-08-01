@@ -634,3 +634,10 @@ This log records the AI-assisted engineering process. It is append-only by conve
 - **Context propagation:** The SQLite index regression now calls `QueryRowContext(t.Context(), ...)`. The Playwright Go boundary creates a five-second startup context and uses `net.ListenConfig.Listen` for both local and demo listeners, preserving cleanup when the second bind fails and cancelling the startup timer after both listeners are established.
 - **Review disposition:** CodeRabbit's two new context findings were valid. The earlier Credentials operation-state finding remains disproved: identity changes trigger a new guarded status refresh, and the existing delayed save/clear tests verify that stale completions cannot replace or disable the new identity state.
 - **Verification:** Focused `go test ./internal/store ./web/e2e/server -count=1` passed, and Codex Node `v24.14.0` ran Playwright Chromium 2/2 across the authenticated local and fixed demo compositions.
+
+## 2026-08-01 - Tasks 15-16 merge closure
+
+- **Merge:** PR #11, `feat: add secure API and observable WebUI`, merged into `main` at `10e99a8` from final head `7b78afc`. The original Task 15 and Task 16 implementation commits remain independently identifiable as `10f45b4` and `8e66b7c`.
+- **Review and CI:** The final CodeRabbit review completed against `7b78afc`, all 11 review threads were resolved, and every required GitHub check was green before merge.
+- **Workspace synchronization:** Remote references were refreshed after merge and `origin/main` was verified at `10e99a8`, containing `7b78afc` as an ancestor. The primary worktree remains on its existing `codex/policy-tools` branch with its unrelated local cache directories untouched.
+- **Scope:** This closure updates documentation only. Task 17 has not started, and no Task 17 implementation or validation work was performed.
