@@ -11,7 +11,7 @@ import (
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 )
 
-//go:embed webdist/*
+//go:embed all:webdist
 var webdist embed.FS
 
 // WebHandler serves the Vite build embedded in the binary.
@@ -33,13 +33,25 @@ type embeddedWebHandler struct {
 }
 
 func (h *embeddedWebHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	if request.Method == http.MethodGet && request.URL.Path == "/" {
+	if request.Method == http.MethodGet && !hasAssetExtension(request.URL.Path) {
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 		writer.WriteHeader(http.StatusOK)
 		_, _ = writer.Write(h.index)
 		return
 	}
 	h.files.ServeHTTP(writer, request)
+}
+
+func hasAssetExtension(path string) bool {
+	for index := len(path) - 1; index >= 0; index-- {
+		switch path[index] {
+		case '/':
+			return false
+		case '.':
+			return true
+		}
+	}
+	return false
 }
 
 type webRuntimeConfig struct {
@@ -83,7 +95,7 @@ func localRuntimeWebHandler(next http.Handler, csrfToken string, capabilities Ca
 	script := []byte("<script>window.__AI4SE_RUNTIME__=" + string(config) + ";</script>")
 	index := bytes.LastIndex(embedded.index, []byte("</head>"))
 	if index < 0 {
-		return next
+		index = len(embedded.index)
 	}
 	withConfig := make([]byte, 0, len(embedded.index)+len(script))
 	withConfig = append(withConfig, embedded.index[:index]...)

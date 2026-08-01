@@ -46,11 +46,13 @@ func runCommand(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintf(output, "run created: %s\n", run.ID); err != nil {
+		return err
+	}
 	if err := continueRun(ctx, runtime, run.ID, output, *approvalTimeout); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(output, "run created: %s\n", run.ID)
-	return err
+	return nil
 }
 
 // continueRun retains the creating runtime for the full run lifecycle. The
@@ -65,8 +67,12 @@ func continueRun(
 	approvalTimeout time.Duration,
 ) (returnErr error) {
 	var server *ownedApprovalServer
+	var approvalTimer *time.Timer
 	var approvalDone <-chan time.Time
 	defer func() {
+		if approvalTimer != nil {
+			approvalTimer.Stop()
+		}
 		if server != nil {
 			returnErr = errors.Join(returnErr, server.Close())
 		}
@@ -85,9 +91,19 @@ func continueRun(
 			if err != nil {
 				return stopOwnedRun(runtime, runID, fmt.Errorf("open approval server: %w", err))
 			}
-			approvalTimer := time.NewTimer(approvalTimeout)
-			defer approvalTimer.Stop()
+			approvalTimer = time.NewTimer(approvalTimeout)
 			approvalDone = approvalTimer.C
+		}
+		if run.State != domain.StateAwaitingApproval && server != nil {
+			if err := server.Close(); err != nil {
+				return stopOwnedRun(runtime, runID, fmt.Errorf("close approval server: %w", err))
+			}
+			server = nil
+		}
+		if run.State != domain.StateAwaitingApproval && approvalTimer != nil {
+			approvalTimer.Stop()
+			approvalTimer = nil
+			approvalDone = nil
 		}
 
 		select {

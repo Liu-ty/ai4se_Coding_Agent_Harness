@@ -36,7 +36,9 @@ type localRuntime struct {
 	Credentials *credentials.Service
 }
 
-func (r *localRuntime) Close() error { return r.Store.Close() }
+func (r *localRuntime) Close() error {
+	return errors.Join(r.Application.Close(), r.Store.Close())
+}
 
 func newLocalRuntime(ctx context.Context, repo string, options localRuntimeOptions) (*localRuntime, error) {
 	dataDir := options.dataDir

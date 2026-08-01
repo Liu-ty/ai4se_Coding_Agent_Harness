@@ -37,6 +37,24 @@ func TestEmbeddedWebAssetsAreReachableThroughDemoRouter(t *testing.T) {
 	}
 }
 
+func TestEmbeddedWebHandlerFallsBackToTheShellForClientRoutes(t *testing.T) {
+	router, err := httpapi.NewDemo(httpapi.Options{
+		Application: webApplication{}, Store: store.NewMemory(),
+		Capabilities: httpapi.DemoCapabilities(), AppShell: httpapi.WebHandler(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/runs/demo-feedback-loop", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("client route = %d: %s", response.Code, response.Body.String())
+	}
+	if !regexp.MustCompile(`<!doctype html>`).MatchString(response.Body.String()) {
+		t.Fatalf("client route did not return the app shell: %s", response.Body.String())
+	}
+}
+
 type webApplication struct{}
 
 func (webApplication) CreateRun(context.Context, app.CreateRunRequest) (domain.Run, error) {

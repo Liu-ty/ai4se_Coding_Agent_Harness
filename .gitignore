@@ -10,7 +10,11 @@ web/dist/
 web/test-results/
 web/playwright-report/
 web/*.tsbuildinfo
-internal/httpapi/webdist/
+internal/httpapi/webdist/*
+!internal/httpapi/webdist/index.html
+!internal/httpapi/webdist/assets/
+internal/httpapi/webdist/assets/*
+!internal/httpapi/webdist/assets/placeholder.js
 dist/
 coverage/
 .codex-go-cache/

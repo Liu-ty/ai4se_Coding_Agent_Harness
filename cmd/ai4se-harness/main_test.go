@@ -83,7 +83,7 @@ required = true
 
 func TestLocalRuntimeCreatesItsDataDirectoryForACleanRepository(t *testing.T) {
 	repo := testrepo.New(t, map[string]string{
-		".ai4se-harness.toml": "version = 1\ndefault_profile = \\\"review\\\"\n",
+		".ai4se-harness.toml": "version = 1\ndefault_profile = \"review\"\n",
 		"a.txt":               "old\n",
 	})
 	dataDir := filepath.Join(repo.Root, ".ai4se-harness")
@@ -94,6 +94,34 @@ func TestLocalRuntimeCreatesItsDataDirectoryForACleanRepository(t *testing.T) {
 	defer runtime.Close()
 	if info, err := os.Stat(dataDir); err != nil || !info.IsDir() {
 		t.Fatalf("data directory = %#v, %v", info, err)
+	}
+}
+
+func TestServeStopsWhenContextIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var output synchronizedBuffer
+	done := make(chan error, 1)
+	go func() {
+		done <- serve(ctx, []string{"--profile", "demo", "--addr", "127.0.0.1:0"}, &output)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for !strings.Contains(output.String(), "demo listening") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(output.String(), "demo listening") {
+		t.Fatalf("demo server did not start: %q", output.String())
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("serve error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("serve did not stop after context cancellation")
 	}
 }
 

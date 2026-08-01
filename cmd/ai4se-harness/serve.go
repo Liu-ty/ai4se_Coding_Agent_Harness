@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/demo"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/httpapi"
@@ -31,7 +33,10 @@ func serve(ctx context.Context, args []string, output io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(output, "demo listening on http://%s\n", *address)
-		return http.ListenAndServe(*address, composition.Router())
+		return serveHTTP(ctx, &http.Server{
+			Addr: *address, Handler: composition.Router(), ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
+		})
 	case "local":
 		if *address == "" {
 			*address = "127.0.0.1:4319"
@@ -59,7 +64,36 @@ func serveLocal(ctx context.Context, repo, address string, output io.Writer) err
 		return err
 	}
 	fmt.Fprintf(output, "local listening on http://%s/?bootstrap=%s\n", address, router.BootstrapToken())
-	return http.ListenAndServe(address, router)
+	return serveHTTP(ctx, &http.Server{
+		Addr: address, Handler: router, ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
+	})
+}
+
+func serveHTTP(ctx context.Context, server *http.Server) error {
+	errorsCh := make(chan error, 1)
+	go func() { errorsCh <- server.ListenAndServe() }()
+	select {
+	case err := <-errorsCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+		defer cancel()
+		err := server.Shutdown(shutdownCtx)
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = server.Close()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		if serveErr := <-errorsCh; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			return serveErr
+		}
+		return nil
+	}
 }
 
 func newLocalRouter(runtime *localRuntime, address string) (*httpapi.Router, error) {

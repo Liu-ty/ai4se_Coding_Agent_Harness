@@ -69,6 +69,11 @@ func TestCIWorkflowPreparesPinnedBrowserAndGitleaksToken(t *testing.T) {
 	if !hasCheckoutHistory(steps) {
 		t.Fatal("gitleaks pull-request scan must fetch the PR baseline history")
 	}
+	for _, jobName := range []string{"frontend-test", "security-test", "integration-test", "build", "docker-build", "e2e"} {
+		if !hasCredentialSafeCheckout(workflow.Jobs[jobName].Steps) {
+			t.Fatalf("%s must disable checkout credential persistence", jobName)
+		}
+	}
 }
 
 func hasRun(steps []struct {
@@ -93,6 +98,20 @@ func hasCheckoutHistory(steps []struct {
 }) bool {
 	for _, step := range steps {
 		if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["fetch-depth"] == "0" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCredentialSafeCheckout(steps []struct {
+	Uses string            `yaml:"uses"`
+	Run  string            `yaml:"run"`
+	Env  map[string]string `yaml:"env"`
+	With map[string]string `yaml:"with"`
+}) bool {
+	for _, step := range steps {
+		if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["persist-credentials"] == "false" {
 			return true
 		}
 	}

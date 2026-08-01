@@ -90,6 +90,23 @@ type Service struct {
 	stopping    map[domain.RunID]bool
 }
 
+// Close stops every active run so composition roots can release their storage
+// only after loop goroutines no longer use it.
+func (s *Service) Close() error {
+	page, err := s.store.ListRuns(context.Background(), storeport.RunListQuery{})
+	if err != nil {
+		return err
+	}
+	var closeErr error
+	for _, run := range page.Runs {
+		if terminal(run.State) {
+			continue
+		}
+		closeErr = errors.Join(closeErr, s.CancelRun(context.Background(), run.ID))
+	}
+	return closeErr
+}
+
 type runInput struct {
 	request CreateRunRequest
 	report  PreflightReport
