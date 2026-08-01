@@ -258,7 +258,7 @@ func (r *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			}
 		}
 	}
-	if r.local && request.URL.Path == "/" {
+	if request.URL.Path == "/" {
 		if request.Method != http.MethodGet {
 			r.writeMethodNotAllowed(writer, requestID)
 			return
