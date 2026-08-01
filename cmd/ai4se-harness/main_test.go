@@ -98,7 +98,7 @@ func TestLocalRuntimeCreatesItsDataDirectoryForACleanRepository(t *testing.T) {
 }
 
 func TestServeStopsWhenContextIsCancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	var output synchronizedBuffer
 	done := make(chan error, 1)
@@ -106,21 +106,25 @@ func TestServeStopsWhenContextIsCancelled(t *testing.T) {
 		done <- serve(ctx, []string{"--profile", "demo", "--addr", "127.0.0.1:0"}, &output)
 	}()
 
-	deadline := time.Now().Add(time.Second)
-	for !strings.Contains(output.String(), "demo listening") && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !strings.Contains(output.String(), "demo listening") {
-		t.Fatalf("demo server did not start: %q", output.String())
+	for !strings.Contains(output.String(), "demo listening") {
+		select {
+		case err := <-done:
+			t.Fatalf("demo server stopped before readiness: %v", err)
+		case <-ctx.Done():
+			t.Fatalf("demo server did not start: %q", output.String())
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 	cancel()
 
+	shutdownCtx, shutdownCancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer shutdownCancel()
 	select {
 	case err := <-done:
 		if err != nil {
 			t.Fatalf("serve error = %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-shutdownCtx.Done():
 		t.Fatal("serve did not stop after context cancellation")
 	}
 }

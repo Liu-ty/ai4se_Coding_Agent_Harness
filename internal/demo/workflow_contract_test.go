@@ -57,14 +57,21 @@ func TestCIWorkflowPreparesPinnedBrowserAndGitleaksToken(t *testing.T) {
 	if err := yaml.Unmarshal(contents, &workflow); err != nil {
 		t.Fatal(err)
 	}
-	if !hasRun(workflow.Jobs["e2e"].Steps, "npx --prefix web playwright install --with-deps chromium") {
+	if !hasRun(workflow.Jobs["e2e"].Steps, "./web/node_modules/.bin/playwright install --with-deps chromium") {
 		t.Fatal("e2e must install Chromium through web's lockfile-pinned Playwright")
 	}
 	steps := workflow.Jobs["security-test"].Steps
+	foundGitleaks := false
 	for _, step := range steps {
-		if strings.HasPrefix(step.Uses, "gitleaks/gitleaks-action@") && step.Env["GITHUB_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" {
-			t.Fatal("gitleaks pull-request scan must receive GITHUB_TOKEN")
+		if strings.HasPrefix(step.Uses, "gitleaks/gitleaks-action@") {
+			foundGitleaks = true
+			if step.Env["GITHUB_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" {
+				t.Fatal("gitleaks pull-request scan must receive GITHUB_TOKEN")
+			}
 		}
+	}
+	if !foundGitleaks {
+		t.Fatal("security-test must run gitleaks")
 	}
 	if !hasCheckoutHistory(steps) {
 		t.Fatal("gitleaks pull-request scan must fetch the PR baseline history")
@@ -96,12 +103,16 @@ func hasCheckoutHistory(steps []struct {
 	Env  map[string]string `yaml:"env"`
 	With map[string]string `yaml:"with"`
 }) bool {
+	seenCheckout := false
 	for _, step := range steps {
-		if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["fetch-depth"] == "0" {
-			return true
+		if strings.HasPrefix(step.Uses, "actions/checkout@") {
+			seenCheckout = true
+			if step.With["fetch-depth"] != "0" {
+				return false
+			}
 		}
 	}
-	return false
+	return seenCheckout
 }
 
 func hasCredentialSafeCheckout(steps []struct {
@@ -110,10 +121,32 @@ func hasCredentialSafeCheckout(steps []struct {
 	Env  map[string]string `yaml:"env"`
 	With map[string]string `yaml:"with"`
 }) bool {
+	seenCheckout := false
 	for _, step := range steps {
-		if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["persist-credentials"] == "false" {
-			return true
+		if strings.HasPrefix(step.Uses, "actions/checkout@") {
+			seenCheckout = true
+			if step.With["persist-credentials"] != "false" {
+				return false
+			}
 		}
 	}
-	return false
+	return seenCheckout
+}
+
+func TestCheckoutContractRejectsAnyUnsafeCheckout(t *testing.T) {
+	steps := []struct {
+		Uses string            `yaml:"uses"`
+		Run  string            `yaml:"run"`
+		Env  map[string]string `yaml:"env"`
+		With map[string]string `yaml:"with"`
+	}{
+		{Uses: "actions/checkout@v4", With: map[string]string{"fetch-depth": "0", "persist-credentials": "false"}},
+		{Uses: "actions/checkout@v4", With: map[string]string{}},
+	}
+	if hasCheckoutHistory(steps) {
+		t.Fatal("checkout history contract accepted a shallow checkout")
+	}
+	if hasCredentialSafeCheckout(steps) {
+		t.Fatal("credential contract accepted a credential-persisting checkout")
+	}
 }

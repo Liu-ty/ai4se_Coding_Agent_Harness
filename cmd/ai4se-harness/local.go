@@ -37,7 +37,10 @@ type localRuntime struct {
 }
 
 func (r *localRuntime) Close() error {
-	return errors.Join(r.Application.Close(), r.Store.Close())
+	if err := r.Application.Close(); err != nil {
+		return err
+	}
+	return r.Store.Close()
 }
 
 func newLocalRuntime(ctx context.Context, repo string, options localRuntimeOptions) (*localRuntime, error) {
