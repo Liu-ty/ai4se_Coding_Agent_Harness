@@ -50,6 +50,7 @@ func TestCIWorkflowPreparesPinnedBrowserAndGitleaksToken(t *testing.T) {
 				Uses string            `yaml:"uses"`
 				Run  string            `yaml:"run"`
 				Env  map[string]string `yaml:"env"`
+				With map[string]string `yaml:"with"`
 			} `yaml:"steps"`
 		} `yaml:"jobs"`
 	}
@@ -59,10 +60,14 @@ func TestCIWorkflowPreparesPinnedBrowserAndGitleaksToken(t *testing.T) {
 	if !hasRun(workflow.Jobs["e2e"].Steps, "npx --prefix web playwright install --with-deps chromium") {
 		t.Fatal("e2e must install Chromium through web's lockfile-pinned Playwright")
 	}
-	for _, step := range workflow.Jobs["security-test"].Steps {
+	steps := workflow.Jobs["security-test"].Steps
+	for _, step := range steps {
 		if strings.HasPrefix(step.Uses, "gitleaks/gitleaks-action@") && step.Env["GITHUB_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" {
 			t.Fatal("gitleaks pull-request scan must receive GITHUB_TOKEN")
 		}
+	}
+	if !hasCheckoutHistory(steps) {
+		t.Fatal("gitleaks pull-request scan must fetch the PR baseline history")
 	}
 }
 
@@ -70,9 +75,24 @@ func hasRun(steps []struct {
 	Uses string            `yaml:"uses"`
 	Run  string            `yaml:"run"`
 	Env  map[string]string `yaml:"env"`
+	With map[string]string `yaml:"with"`
 }, want string) bool {
 	for _, step := range steps {
 		if step.Run == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCheckoutHistory(steps []struct {
+	Uses string            `yaml:"uses"`
+	Run  string            `yaml:"run"`
+	Env  map[string]string `yaml:"env"`
+	With map[string]string `yaml:"with"`
+}) bool {
+	for _, step := range steps {
+		if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["fetch-depth"] == "0" {
 			return true
 		}
 	}
