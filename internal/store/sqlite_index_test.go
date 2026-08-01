@@ -12,7 +12,7 @@ func TestSQLiteCreatesRecentRunsOrderingIndex(t *testing.T) {
 	}
 	defer func() { _ = database.Close() }()
 	var sql string
-	if err := database.db.QueryRow(
+	if err := database.db.QueryRowContext(t.Context(),
 		"SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'runs_updated_id_idx'",
 	).Scan(&sql); err != nil {
 		t.Fatalf("recent-runs index missing: %v", err)

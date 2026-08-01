@@ -304,15 +304,19 @@ func main() {
 		serveIndex(writer, index, runtimeScript("", true, []string{"demo-feedback"}))
 	})
 	demoHandler := assetWrapper(dist, demoRouter, demoShell, "", nil, nil)
-	localListener, err := net.Listen("tcp", localAddress)
+	startupContext, cancelStartup := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelStartup()
+	listenerConfig := net.ListenConfig{}
+	localListener, err := listenerConfig.Listen(startupContext, "tcp", localAddress)
 	if err != nil {
 		panic(err)
 	}
-	demoListener, err := net.Listen("tcp", demoAddress)
+	demoListener, err := listenerConfig.Listen(startupContext, "tcp", demoAddress)
 	if err != nil {
 		_ = localListener.Close()
 		panic(err)
 	}
+	cancelStartup()
 	go func() {
 		if serveErr := http.Serve(localListener, localHandler); serveErr != nil &&
 			!errors.Is(serveErr, http.ErrServerClosed) {
