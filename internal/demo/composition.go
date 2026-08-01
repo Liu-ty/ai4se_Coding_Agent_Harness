@@ -77,11 +77,8 @@ func (c *Composition) run(ctx context.Context) error {
 	return nil
 }
 
-func (c *Composition) Result() Result            { return c.result }
-func (c *Composition) Router() http.Handler      { return c.router }
-func (c *Composition) ProviderType() string      { return "mock" }
-func (c *Composition) ExecutorType() string      { return "in-memory" }
-func (c *Composition) RegisteredTools() []string { return []string{"apply_patch", "finish"} }
+func (c *Composition) Result() Result       { return c.result }
+func (c *Composition) Router() http.Handler { return c.router }
 
 // The following app.Application methods deliberately make every mutable local
 // capability unreachable from the demo router.

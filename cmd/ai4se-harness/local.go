@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -45,6 +46,9 @@ func newLocalRuntime(ctx context.Context, repo string, options localRuntimeOptio
 	dataDir, err := filepath.Abs(dataDir)
 	if err != nil {
 		return nil, err
+	}
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create local runtime directory: %w", err)
 	}
 	storage, err := store.OpenSQLite(filepath.Join(dataDir, "runs.db"))
 	if err != nil {

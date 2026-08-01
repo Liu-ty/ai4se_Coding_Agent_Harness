@@ -5,6 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"time"
+
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 )
 
 func runCommand(args []string, output io.Writer) error {
@@ -28,6 +31,30 @@ func runCommand(args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := waitForTerminal(context.Background(), runtime.Application, run.ID); err != nil {
+		return err
+	}
 	_, err = fmt.Fprintf(output, "run created: %s\n", run.ID)
 	return err
+}
+
+func waitForTerminal(ctx context.Context, application interface {
+	GetRun(context.Context, domain.RunID) (domain.Run, error)
+}, runID domain.RunID) error {
+	for {
+		run, err := application.GetRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+		if run.State == domain.StateSucceeded || run.State == domain.StateReviewComplete || run.State == domain.StateStopped {
+			return nil
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

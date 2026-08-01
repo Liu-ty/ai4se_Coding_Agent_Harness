@@ -13,6 +13,7 @@ import (
 
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/credentials"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/demo"
+	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/domain"
 	"github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/testutil/testrepo"
 )
 
@@ -20,15 +21,6 @@ func TestDemoCompositionExcludesRealCapabilities(t *testing.T) {
 	composition, err := demo.NewComposition(context.Background(), "127.0.0.1:4319")
 	if err != nil {
 		t.Fatal(err)
-	}
-	if got, want := composition.ProviderType(), "mock"; got != want {
-		t.Fatalf("provider = %q, want %q", got, want)
-	}
-	if got, want := composition.ExecutorType(), "in-memory"; got != want {
-		t.Fatalf("executor = %q, want %q", got, want)
-	}
-	if got, want := composition.RegisteredTools(), []string{"apply_patch", "finish"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("tools = %v, want %v", got, want)
 	}
 	for _, path := range []string{
 		"/api/v1/credentials/openai/api.openai.com",
@@ -75,6 +67,43 @@ required = true
 	}
 }
 
+func TestLocalRuntimeCreatesItsDataDirectoryForACleanRepository(t *testing.T) {
+	repo := testrepo.New(t, map[string]string{
+		".ai4se-harness.toml": "version = 1\ndefault_profile = \\\"review\\\"\n",
+		"a.txt":               "old\n",
+	})
+	dataDir := filepath.Join(repo.Root, ".ai4se-harness")
+	runtime, err := newLocalRuntime(t.Context(), repo.Root, localRuntimeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if info, err := os.Stat(dataDir); err != nil || !info.IsDir() {
+		t.Fatalf("data directory = %#v, %v", info, err)
+	}
+}
+
+func TestWaitForTerminalKeepsRuntimeAliveUntilTheRunStops(t *testing.T) {
+	application := &terminalAfterReads{states: []domain.RunState{domain.StateDeciding, domain.StateExecuting, domain.StateSucceeded}}
+	if err := waitForTerminal(t.Context(), application, "run"); err != nil {
+		t.Fatal(err)
+	}
+	if application.reads != 3 {
+		t.Fatalf("reads = %d, want 3", application.reads)
+	}
+}
+
+type terminalAfterReads struct {
+	states []domain.RunState
+	reads  int
+}
+
+func (a *terminalAfterReads) GetRun(context.Context, domain.RunID) (domain.Run, error) {
+	state := a.states[a.reads]
+	a.reads++
+	return domain.Run{State: state}, nil
+}
+
 func TestDemoCompositionRejectsEveryForbiddenRouteAndUsesNoLocalTypes(t *testing.T) {
 	composition, err := demo.NewComposition(t.Context(), "127.0.0.1:4319")
 	if err != nil {
@@ -95,9 +124,8 @@ func TestDemoCompositionRejectsEveryForbiddenRouteAndUsesNoLocalTypes(t *testing
 		}
 	}
 	compositionType := reflect.TypeOf(composition).Elem()
-	if composition.ProviderType() != "mock" || composition.ExecutorType() != "in-memory" ||
-		compositionType.PkgPath() != "github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/demo" {
-		t.Fatalf("unexpected demo composition: provider=%s executor=%s type=%T", composition.ProviderType(), composition.ExecutorType(), composition)
+	if compositionType.PkgPath() != "github.com/Liu-ty/ai4se_Coding_Agent_Harness/internal/demo" {
+		t.Fatalf("unexpected demo composition type %T", composition)
 	}
 	for index := 0; index < compositionType.NumField(); index++ {
 		fieldType := compositionType.Field(index).Type
