@@ -1,0 +1,31 @@
+stages:
+  - test
+
+variables:
+  GOCACHE: "$CI_PROJECT_DIR/.cache/go/build"
+  GOMODCACHE: "$CI_PROJECT_DIR/.cache/go/mod"
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.cache/npm"
+
+unit-test:
+  stage: test
+  image: golang:1.26.5-bookworm
+  cache:
+    key: "go-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cache/go/
+  script:
+    - go test ./... -count=1
+    - go vet ./...
+
+frontend-test:
+  stage: test
+  image: node:24-bookworm
+  cache:
+    key: "npm-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cache/npm/
+  before_script:
+    - npm --prefix web ci --prefer-offline
+  script:
+    - npm --prefix web test -- --run
+    - npm --prefix web run build
