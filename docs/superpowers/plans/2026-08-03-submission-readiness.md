@@ -212,7 +212,7 @@ git commit -m "docs: add final project reflection" -m "Agent: Codex polished str
 - Consumes: Tasks 1–2 commits on codex/submission-readiness.
 - Produces: green local verification and a GitHub draft PR targeting main.
 
-- [ ] **Step 1: Run the complete local verification**
+- [x] **Step 1: Run the complete local verification**
 
 ~~~powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .scripts	est.ps1
@@ -220,7 +220,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .scripts	est.ps1
 
 Expected: 51 frontend tests pass, all Go packages pass, go vet exits 0, and both Playwright tests pass.
 
-- [ ] **Step 2: Restore only generated embedded assets**
+- [x] **Step 2: Restore only generated embedded assets**
 
 ~~~powershell
 git restore --worktree -- internal/httpapi/webdist/index.html internal/httpapi/webdist/assets/placeholder.js
@@ -229,7 +229,7 @@ git status --short --branch
 
 Expected: no tracked source changes remain; only explicitly excluded untracked files may appear.
 
-- [ ] **Step 3: Push and open a draft PR**
+- [x] **Step 3: Push and open a draft PR**
 
 ~~~powershell
 git push -u origin codex/submission-readiness
