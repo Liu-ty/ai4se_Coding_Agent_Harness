@@ -32,69 +32,12 @@
 
 - [x] **Step 1: Write the failing CI contract test**
 
-Create internal/delivery/gitlab_ci_test.go:
-
-~~~go
-package delivery_test
-
-import (
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
-	"testing"
-
-	"gopkg.in/yaml.v3"
-)
-
-type job struct {
-	Image        string   `yaml:"image"`
-	BeforeScript []string `yaml:"before_script"`
-	Script       []string `yaml:"script"`
-}
-
-func TestGitLabCIContainsRequiredJobs(t *testing.T) {
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("locate test file")
-	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
-	content, err := os.ReadFile(filepath.Join(root, ".gitlab-ci.yml"))
-	if err != nil {
-		t.Fatalf("read .gitlab-ci.yml: %v", err)
-	}
-
-	var config map[string]yaml.Node
-	if err := yaml.Unmarshal(content, &config); err != nil {
-		t.Fatalf("parse .gitlab-ci.yml: %v", err)
-	}
-
-	assertJob := func(name, image string, commands ...string) {
-		t.Helper()
-		node, exists := config[name]
-		if !exists {
-			t.Fatalf("missing %s job", name)
-		}
-		var got job
-		if err := node.Decode(&got); err != nil {
-			t.Fatalf("decode %s job: %v", name, err)
-		}
-		if got.Image != image {
-			t.Fatalf("%s image = %q, want %q", name, got.Image, image)
-		}
-		commandsInJob := append(append([]string(nil), got.BeforeScript...), got.Script...)
-		joined := strings.Join(commandsInJob, "\n")
-		for _, command := range commands {
-			if !strings.Contains(joined, command) {
-				t.Errorf("%s script missing %q", name, command)
-			}
-		}
-	}
-
-	assertJob("unit-test", "golang:1.26.5-bookworm", "go test ./... -count=1", "go vet ./...")
-	assertJob("frontend-test", "node:24-bookworm", "npm --prefix web ci", "npm --prefix web test -- --run", "npm --prefix web run build")
-}
-~~~
+Create `internal/delivery/gitlab_ci_test.go` so it parses the real YAML, checks
+the two job names, images, isolated cache keys/paths, and required commands.
+Compare trim-normalized `before_script` and `script` entries individually;
+allow additional arguments only for `npm --prefix web ci`. Include a regression
+test proving that `echo "go test ./... -count=1"` cannot satisfy the command
+contract.
 
 - [x] **Step 2: Run the focused test and verify RED**
 
@@ -113,18 +56,17 @@ stages:
   - test
 
 variables:
-  GOCACHE: "$CI_PROJECT_DIR/.cache/go-build"
-  GOMODCACHE: "$CI_PROJECT_DIR/.cache/go-mod"
+  GOCACHE: "$CI_PROJECT_DIR/.cache/go/build"
+  GOMODCACHE: "$CI_PROJECT_DIR/.cache/go/mod"
   NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.cache/npm"
-
-cache:
-  key: "$CI_COMMIT_REF_SLUG"
-  paths:
-    - .cache/
 
 unit-test:
   stage: test
   image: golang:1.26.5-bookworm
+  cache:
+    key: "go-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cache/go/
   script:
     - go test ./... -count=1
     - go vet ./...
@@ -132,6 +74,10 @@ unit-test:
 frontend-test:
   stage: test
   image: node:24-bookworm
+  cache:
+    key: "npm-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cache/npm/
   before_script:
     - npm --prefix web ci --prefer-offline
   script:
@@ -173,9 +119,8 @@ git commit -m "ci: add NJU GitLab test pipeline" -m "Agent: Codex (no subagent).
 
 ~~~powershell
 $text = Get-Content -LiteralPath REFLECTION.md -Raw -Encoding UTF8
-$body = ($text -split "?
-" | Where-Object { $_ -notmatch '^#' -and $_ -notmatch '^>' }) -join ''
-$clean = $body -replace '[sp{P}p{S}]', ''
+$body = ($text -split "\r?\n" | Where-Object { $_ -notmatch '^#' -and $_ -notmatch '^>' }) -join ''
+$clean = $body -replace '[\s\p{P}\p{S}]', ''
 if ($clean.Length -lt 1500 -or $clean.Length -gt 2500) { throw "reflection length: $($clean.Length)" }
 if ([regex]::Matches($text, '(?m)^## ').Count -ne 8) { throw 'reflection must have eight sections' }
 if ($text -match '【请|TODO|TBD') { throw 'reflection contains placeholders' }
@@ -215,7 +160,7 @@ git commit -m "docs: add final project reflection" -m "Agent: Codex polished str
 - [x] **Step 1: Run the complete local verification**
 
 ~~~powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .scripts	est.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ~~~
 
 Expected: 51 frontend tests pass, all Go packages pass, go vet exits 0, and both Playwright tests pass.
@@ -260,8 +205,13 @@ Expected: main contains the migration design, GitLab CI, CI contract test, refle
 - [ ] **Step 2: Prove NJU did not advance independently**
 
 ~~~powershell
-git ls-remote nju refs/heads/main
-git merge-base --is-ancestor cadc7de8a7457bd0f59c21b33019e282f74b47d5 HEAD
+$expectedNjuMain = 'cadc7de8a7457bd0f59c21b33019e282f74b47d5'
+$remoteLine = git ls-remote nju refs/heads/main
+if ($LASTEXITCODE -ne 0 -or -not $remoteLine) { throw 'unable to read nju/main' }
+$actualNjuMain = ($remoteLine -split '\s+')[0]
+if ($actualNjuMain -ne $expectedNjuMain) { throw "nju/main moved: $actualNjuMain" }
+git merge-base --is-ancestor $expectedNjuMain HEAD
+if ($LASTEXITCODE -ne 0) { throw 'imported baseline is not an ancestor of HEAD' }
 ~~~
 
 Expected: NJU still points to the imported baseline and the baseline is an ancestor of reviewed main. Stop if NJU moved unexpectedly.
@@ -304,13 +254,26 @@ Expected: workflow conclusion success; assets include ai4se-harness_windows_amd6
 
 - [ ] **Step 3: Download, verify, and smoke-test**
 
-Download all three assets into a new temporary directory, compare the Windows binary SHA-256 with checksums.txt, then run:
+Download all three assets into a new temporary directory. Verify the SHA-256
+listed in `checksums.txt` for both binaries. On Windows, compare each value with
+`Get-FileHash -Algorithm SHA256`, then run:
 
 ~~~powershell
-.ai4se-harness_windows_amd64.exe demo feedback-loop --format json
+.\ai4se-harness_windows_amd64.exe demo feedback-loop --format json
 ~~~
 
-Expected: checksum matches and deterministic simulated feedback-loop JSON is returned without credentials.
+On a GitHub-hosted Linux runner or a clean Linux VM, download the same three
+assets and run:
+
+~~~bash
+sha256sum --check checksums.txt
+chmod +x ai4se-harness_linux_amd64
+./ai4se-harness_linux_amd64 demo feedback-loop --format json
+~~~
+
+Expected: both checksums match, and both platform binaries return deterministic
+simulated feedback-loop JSON without credentials. Release verification is not
+complete until the Linux smoke test has run on Linux.
 
 - [ ] **Step 4: Make the reflection status truthful after Release**
 

@@ -21,7 +21,7 @@ Both jobs use repository-local caches only. They do not print environment variab
 
 ## Change and Review Flow
 
-Work occurs on `codex/submission-readiness`. The branch contains only the final `REFLECTION.md`, the migration design/plan, and `.gitlab-ci.yml`; local Go caches and unrelated files are excluded. Before any push, the full local verification script must pass. The branch is then reviewed through GitHub before the reviewed commit is synchronized to NJU GitLab.
+Work occurs on `codex/submission-readiness`. The branch contains only the submission-readiness changes: the final `REFLECTION.md`, migration design/plan, GitLab pipeline, its deterministic Go contract test, and the `.gitignore` cache exclusion. Local Go caches and unrelated files are excluded. Before any push, the full local verification script must pass. The branch is then reviewed through GitHub before the reviewed commit is synchronized to NJU GitLab.
 
 ## Release Flow
 
