@@ -25,7 +25,7 @@ Work occurs on `codex/submission-readiness`. The branch contains only the submis
 
 ## Release Flow
 
-After the reviewed submission commit is present on `main`, create an annotated semantic version tag starting with `v`. The existing GitHub Release workflow builds Windows amd64 and Linux amd64 CLI binaries, generates SHA-256 checksums and release notes, and publishes the mock-only demo image to GHCR. A Release is complete only after the workflow succeeds and the public Release page exposes the expected artifacts.
+After the reviewed submission commit is present on `main`, create an annotated semantic version tag starting with `v`. The existing GitHub Release workflow builds Windows amd64 and Linux amd64 CLI binaries, generates SHA-256 checksums and release notes, and publishes the mock-only demo image to GHCR. A manual `release-smoke.yml` workflow accepts the published tag, downloads all assets on an Ubuntu runner, verifies every checksum, and runs the Linux mock demo. A Release is complete only after both workflows succeed, the Windows smoke test passes, and the public Release page exposes the expected artifacts.
 
 The final course submission records:
 

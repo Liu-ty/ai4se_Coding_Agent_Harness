@@ -192,7 +192,7 @@ The reviewed PR body must list the GitLab CI contract, reflection integration, A
 - Consumes: merged GitHub main.
 - Produces: the same commit on NJU main and a passing pipeline containing unit-test and frontend-test.
 
-- [ ] **Step 1: Update local main after the reviewed PR merge**
+- [x] **Step 1: Update local main after the reviewed PR merge**
 
 ~~~powershell
 git switch main
@@ -202,7 +202,7 @@ git log -1 --oneline
 
 Expected: main contains the migration design, GitLab CI, CI contract test, reflection, and active plan.
 
-- [ ] **Step 2: Prove NJU did not advance independently**
+- [x] **Step 2: Prove NJU did not advance independently**
 
 ~~~powershell
 $expectedNjuMain = 'cadc7de8a7457bd0f59c21b33019e282f74b47d5'
@@ -216,7 +216,7 @@ if ($LASTEXITCODE -ne 0) { throw 'imported baseline is not an ancestor of HEAD' 
 
 Expected: NJU still points to the imported baseline and the baseline is an ancestor of reviewed main. Stop if NJU moved unexpectedly.
 
-- [ ] **Step 3: Push reviewed main and verify the pipeline**
+- [x] **Step 3: Push reviewed main and verify the pipeline**
 
 ~~~powershell
 git push nju main:main
@@ -228,13 +228,15 @@ Expected: a fast-forward push succeeds. Open the NJU pipeline page and confirm t
 
 **Files:**
 - Create remotely: annotated tag v1.0.0 and GitHub Release assets.
+- Create: .github/workflows/release-smoke.yml.
+- Test: internal/delivery/release_smoke_workflow_test.go.
 - Modify after Release: REFLECTION.md release-status sentence only.
 
 **Interfaces:**
 - Consumes: synchronized green main and .github/workflows/release.yml.
 - Produces: Windows/Linux binaries, checksums.txt, GHCR demo image, a public Release URL, and truthful final reflection status.
 
-- [ ] **Step 1: Create and push the annotated tag**
+- [x] **Step 1: Create and push the annotated tag**
 
 ~~~powershell
 git tag -a v1.0.0 -m "AI4SE final project v1.0.0"
@@ -243,7 +245,7 @@ git push origin v1.0.0
 
 Expected: GitHub starts the Release workflow for v1.0.0.
 
-- [ ] **Step 2: Verify workflow and assets**
+- [x] **Step 2: Verify workflow and assets**
 
 ~~~powershell
 gh run list --workflow release.yml --limit 5
@@ -262,8 +264,16 @@ listed in `checksums.txt` for both binaries. On Windows, compare each value with
 .\ai4se-harness_windows_amd64.exe demo feedback-loop --format json
 ~~~
 
-On a GitHub-hosted Linux runner or a clean Linux VM, download the same three
-assets and run:
+Because the submission machine has no WSL distribution or Docker runtime, add
+`.github/workflows/release-smoke.yml` with a required `tag` dispatch input and
+an `ubuntu-latest` job. After merging that workflow, run:
+
+~~~powershell
+gh workflow run release-smoke.yml -f tag=v1.0.0
+gh run list --workflow release-smoke.yml --limit 3
+~~~
+
+The runner downloads the same three assets and runs:
 
 ~~~bash
 sha256sum --check checksums.txt
