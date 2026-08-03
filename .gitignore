@@ -17,5 +17,6 @@ internal/httpapi/webdist/assets/*
 !internal/httpapi/webdist/assets/placeholder.js
 dist/
 coverage/
+.cache/
 .codex-go-cache/
 .codex-go-modcache/
