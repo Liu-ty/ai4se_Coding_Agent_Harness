@@ -67,15 +67,42 @@ func TestReleaseSmokeWorkflowRunsLinuxBinaryOnUbuntu(t *testing.T) {
 	if hasCommandEntry(entries, "cd dist", false) {
 		t.Error("verification script must stay at the workspace root because checksums contain dist/ paths")
 	}
-	for _, command := range []string{
+	commands := []string{
+		"set -euo pipefail",
+		"mkdir dist",
 		`gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir dist`,
 		"sha256sum --check dist/checksums.txt",
 		"chmod +x dist/ai4se-harness_linux_amd64",
 		`dist/ai4se-harness_linux_amd64 demo feedback-loop --format json > smoke.json`,
 		`grep -q '"state":"SUCCEEDED"' smoke.json`,
-	} {
+		"cat smoke.json",
+	}
+	for _, command := range commands {
 		if !hasCommandEntry(entries, command, false) {
 			t.Errorf("verification script missing command entry %q", command)
 		}
 	}
+	if !commandEntriesAppearInOrder(entries, commands) {
+		t.Fatal("verification script must fail fast, verify checksums, and only then execute the binary")
+	}
+}
+
+func TestCommandEntriesAppearInOrderRejectsOutOfOrderCommands(t *testing.T) {
+	entries := []string{"download", "execute", "checksum"}
+	if commandEntriesAppearInOrder(entries, []string{"download", "checksum", "execute"}) {
+		t.Fatal("out-of-order commands must be rejected")
+	}
+}
+
+func commandEntriesAppearInOrder(entries, required []string) bool {
+	nextRequired := 0
+	for _, entry := range entries {
+		if nextRequired == len(required) {
+			return true
+		}
+		if strings.TrimSpace(entry) == required[nextRequired] {
+			nextRequired++
+		}
+	}
+	return nextRequired == len(required)
 }
