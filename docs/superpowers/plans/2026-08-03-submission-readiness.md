@@ -254,7 +254,7 @@ gh release view v1.0.0 --json url,tagName,assets
 
 Expected: workflow conclusion success; assets include ai4se-harness_windows_amd64.exe, ai4se-harness_linux_amd64, and checksums.txt.
 
-- [ ] **Step 3: Download, verify, and smoke-test**
+- [x] **Step 3: Download, verify, and smoke-test**
 
 Download all three assets into a new temporary directory. Verify the SHA-256
 listed in `checksums.txt` for both binaries. On Windows, compare each value with
@@ -276,18 +276,28 @@ gh run list --workflow release-smoke.yml --limit 3
 The runner downloads the same three assets and runs:
 
 ~~~bash
-sha256sum --check checksums.txt
-chmod +x ai4se-harness_linux_amd64
-./ai4se-harness_linux_amd64 demo feedback-loop --format json
+sha256sum --check dist/checksums.txt
+chmod +x dist/ai4se-harness_linux_amd64
+dist/ai4se-harness_linux_amd64 demo feedback-loop --format json
 ~~~
 
 Expected: both checksums match, and both platform binaries return deterministic
 simulated feedback-loop JSON without credentials. Release verification is not
 complete until the Linux smoke test has run on Linux.
 
-- [ ] **Step 4: Make the reflection status truthful after Release**
+Evidence: the Windows binary and both downloaded SHA-256 values were verified
+locally. GitHub Actions run
+`https://github.com/Liu-ty/ai4se_Coding_Agent_Harness/actions/runs/31253948202`
+then verified both assets as `OK` on Ubuntu 24.04 and returned terminal
+`{"state":"SUCCEEDED"}` from the Linux binary.
+
+- [x] **Step 4: Make the reflection status truthful after Release**
 
 Replace only the pending-release sentence in REFLECTION.md with the completed tag, checksum, and smoke-test evidence. Re-run the Task 2 reflection contract and keep the result within 1500–2500 characters.
+
+Evidence: Section 6 now records the completed `v1.0.0` tag, dual-platform
+checksum verification, and Windows/Ubuntu smoke results without claiming a
+production WebUI deployment.
 
 - [ ] **Step 5: Integrate final documentation evidence**
 
