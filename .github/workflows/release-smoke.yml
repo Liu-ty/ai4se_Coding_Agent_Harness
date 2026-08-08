@@ -1,0 +1,31 @@
+name: Release Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to verify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Linux release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir dist
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+          sha256sum --check dist/checksums.txt
+          chmod +x dist/ai4se-harness_linux_amd64
+          dist/ai4se-harness_linux_amd64 demo feedback-loop --format json > smoke.json
+          grep -q '"state":"SUCCEEDED"' smoke.json
+          cat smoke.json
