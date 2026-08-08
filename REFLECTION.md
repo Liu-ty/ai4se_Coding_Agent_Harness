@@ -36,7 +36,7 @@ Subagent 能自主推进多远，主要取决于任务是否拥有闭合上下�
 
 安全录入不等于把 key 放进环境变量，还要考虑终端 history、日志、子进程继承、SQLite/WAL 残留、endpoint 误绑定，以及公开 demo 是否注册真实能力。最终实现优先使用 OS keyring，并提供加密 vault fallback；真实凭据只属于本地 CLI，公开容器则是裁剪真实能力的 mock demo。
 
-分发同样不止一个 `Dockerfile`。Task 18 建立了用于生成 Release、checksum 和 GHCR 镜像的 workflow，以及 Compose/Caddy 部署资产；但正式 tag、可下载产物、目标机验证和访问链接仍须在提交前实际完成。这项尚待闭环的工作本身就是教训：凭据威胁模型、CI 骨架和 release smoke test 应更早建立。
+分发同样不止一个 `Dockerfile`。Task 18 建立了用于生成 Release、checksum 和 GHCR 镜像的 workflow，以及 Compose/Caddy 部署资产。提交前，我发布了正式 `v1.0.0`，并分别在 Windows 本机与 Ubuntu CI 下载产物、核对两个平台的 SHA-256，再实际运行 feedback-loop demo；两端均返回 `SUCCEEDED`。这次收尾让我更明确地意识到：凭据威胁模型、CI 骨架和 release smoke test 应更早建立，而不是等到功能完成后才补交付证据。
 
 ## 七、对 Superpowers 的批判与重做设想
 
