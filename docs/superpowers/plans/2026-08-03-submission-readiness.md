@@ -299,6 +299,14 @@ Evidence: Section 6 now records the completed `v1.0.0` tag, dual-platform
 checksum verification, and Windows/Ubuntu smoke results without claiming a
 production WebUI deployment.
 
-- [ ] **Step 5: Integrate final documentation evidence**
+- [x] **Step 5: Integrate final documentation evidence**
 
 Commit the reflection status update on a short review branch, merge through GitHub review, fast-forward NJU main, and verify the new NJU pipeline is passed. Record the final NJU repository, pipeline, and GitHub Release URLs together.
+
+Evidence: GitHub PR #16 merged the final reflection evidence at `bfcb9a6` after
+all checks passed. NJU `main` fast-forwarded to the same commit, and pipeline
+`https://git.nju.edu.cn/noth1ng/ai4se_Coding_Agent_Harness/-/pipelines/319070`
+passed both `unit-test` and `frontend-test`. Final links:
+
+- NJU repository: `https://git.nju.edu.cn/noth1ng/ai4se_Coding_Agent_Harness`
+- GitHub Release: `https://github.com/Liu-ty/ai4se_Coding_Agent_Harness/releases/tag/v1.0.0`
