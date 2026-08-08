@@ -64,11 +64,14 @@ func TestReleaseSmokeWorkflowRunsLinuxBinaryOnUbuntu(t *testing.T) {
 		t.Fatal("missing Verify Linux release assets step")
 	}
 	entries := strings.Split(script, "\n")
+	if hasCommandEntry(entries, "cd dist", false) {
+		t.Error("verification script must stay at the workspace root because checksums contain dist/ paths")
+	}
 	for _, command := range []string{
 		`gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir dist`,
-		"sha256sum --check checksums.txt",
-		"chmod +x ai4se-harness_linux_amd64",
-		`./ai4se-harness_linux_amd64 demo feedback-loop --format json > smoke.json`,
+		"sha256sum --check dist/checksums.txt",
+		"chmod +x dist/ai4se-harness_linux_amd64",
+		`dist/ai4se-harness_linux_amd64 demo feedback-loop --format json > smoke.json`,
 		`grep -q '"state":"SUCCEEDED"' smoke.json`,
 	} {
 		if !hasCommandEntry(entries, command, false) {
